@@ -1,4 +1,4 @@
-// ver 1.10.0 | 2026-11-11 20:30
+// ver 1.10.1 | 2026-11-11 20:40
 package app.motioncare.core
 
 import app.motioncare.data.DemoNavi
@@ -209,7 +209,7 @@ class CareBrain(
     fun addWaypoint(id: String) {
         val stop = DemoNavi.stops.firstOrNull { it.id == id } ?: return
         if (waypoints.none { it.id == id }) waypoints = waypoints + stop
-        say("${stop.name}을(를) 경유지로 추가했어요 (시연)", 6000)
+        say("${stop.name}휴게소를 경유지로 넣었어요", 6000)
         refresh()
     }
 
