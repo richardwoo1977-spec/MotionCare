@@ -1,4 +1,4 @@
-// ver 1.11.0 | 2026-11-11 22:15
+// ver 1.13.0 | 2026-11-11 22:50
 package app.motioncare.core
 
 import app.motioncare.data.DemoNavi
@@ -17,13 +17,18 @@ import app.motioncare.data.Store
  *           the guidance suggests opening it a little when it is fine outside. Ends by itself after [Policy.RELIEF_MAX_MIN] minutes
  *           (settings go back, but the seats stay marked "멀미 나요" until someone says it is over).
  *  PREVENT  only when [preventTargets] names seats.
+ *
+ * Rest areas on the route: the navigation (checked on the emulator, NaviHelper 3.0.5) takes about 8 seconds for one
+ * change (it cancels the route, shows the new one for 5 seconds, then guides again) and silently drops a second
+ * request sent in that time. So one change is sent at a time, the next one only after the navigation reports the
+ * first, and a stop is shown as on the route only once the navigation reports it.
  */
 class CareBrain(
     private val clock: () -> Long,
     private val speak: (String) -> Unit,
     private val onDesired: (Desired) -> Unit,
-    /** route changes for the navigation (NaviHelper) */
-    private val onNavi: (NaviCmd) -> Unit = {}
+    /** route changes for the navigation (NaviHelper); false = could not be sent */
+    private val onNavi: (NaviCmd) -> Boolean = { false }
 ) {
     private var gear = Gear.UNKNOWN
     private var speedKmh = 0.0
@@ -63,6 +68,13 @@ class CareBrain(
     private var naviDestination: String? = null
 
     private var pickedRest: String? = null
+
+    /** the route change waiting for the navigation */
+    private var job: RestJob? = null
+
+    /** what the rest screen shows about the last change that failed, until [workNoteUntilMs] */
+    private var workNote: RestWork? = null
+    private var workNoteUntilMs = 0L
 
     /** last position the navigation reported */
     private var locText = ""
@@ -138,6 +150,8 @@ class CareBrain(
             windowHintPending = false
             say(WINDOW_HINT, 10_000)
         }
+        checkJobTimeout(now)
+        if (workNote != null && now >= workNoteUntilMs) workNote = null
         offerRestInAdvance()
         if (caption.isNotEmpty() && now >= captionUntilMs) caption = ""
         refresh()
@@ -242,18 +256,21 @@ class CareBrain(
 
     fun restAdd(id: String): RestOutcome {
         val stop = stopById(id) ?: return RestOutcome.NOT_FOUND
+        if (job == null && !routing()) return finish(RestOutcome.NO_ROUTE)
         return finish(doAdd(stop))
     }
 
     /** Puts [id] on the route in place of the rest area the app put there (the later one when there are two). */
     fun restReplace(id: String): RestOutcome {
         val stop = stopById(id) ?: return RestOutcome.NOT_FOUND
+        if (job == null && !routing()) return finish(RestOutcome.NO_ROUTE)
         val old = waypoints.lastOrNull() ?: return finish(doAdd(stop))
         return finish(doReplace(old, stop))
     }
 
     fun restRemove(id: String): RestOutcome {
         val stop = waypoints.firstOrNull { it.id == id } ?: stopById(id) ?: return RestOutcome.NOT_FOUND
+        if (job == null && !routing()) return finish(RestOutcome.NO_ROUTE)
         return finish(doRemove(stop))
     }
 
@@ -266,6 +283,10 @@ class CareBrain(
         val ahead = DemoNavi.stops
         val named = RestPlan.find(place, waypoints + ahead)
         if (!place.isNullOrBlank() && named == null) return RestOutcome.NOT_FOUND to place
+        // one change at a time: the navigation drops a request sent while it is still changing the route
+        if (job != null) return finish(RestOutcome.BUSY) to ""
+        // with no destination the navigation answers a waypoint with an error dialog: nothing is sent
+        if (!routing()) return finish(RestOutcome.NO_ROUTE) to ""
         val result = when (action) {
             RestAction.ADD -> {
                 val stop = named ?: suggestion ?: Policy.pickStop(ahead)
@@ -292,9 +313,16 @@ class CareBrain(
         return result
     }
 
-    /** The navigation's waypoints in route order ([names]), or null when it reports none. */
+    /**
+     * The navigation's waypoints in route order ([names]); null while it is not guiding (no route, or the route is being
+     * changed). A list is the navigation's own word: ours not in it are dropped, and a change waiting for it is checked.
+     */
     fun onNaviWaypoints(names: List<String>?) {
         naviWaypoints = names
+        if (names != null) {
+            waypoints = waypoints.filter { w -> names.any { RestPlan.same(it, w.name) } }
+            checkJob(names)
+        }
         refresh()
     }
 
@@ -325,41 +353,128 @@ class CareBrain(
     private fun routeCount(): Int = RestPlan.names(waypoints, naviWaypoints).size
 
     private fun doAdd(stop: RestStop): RestOutcome {
+        if (job != null) return RestOutcome.BUSY
         if (onRoute(stop)) return RestOutcome.ALREADY
         val index = routeCount()
         if (index >= RestPlan.MAX) return RestOutcome.FULL
-        waypoints = waypoints + stop
-        naviWaypoints = naviWaypoints?.plus(stop.name)
-        onNavi(NaviCmd.Add(stop, index))
-        say("${stop.name}휴게소를 경유지로 넣었어요", 6000)
-        return RestOutcome.DONE
+        val route = RestPlan.names(waypoints, naviWaypoints)
+        return begin(
+            RestJob(RestAction.ADD, stop, null, index, removing = false),
+            NaviCmd.Add(stop, index),
+            RestWork("${stop.name} 넣는 중", line(route + stop.name) + " · 내비가 확인하면 바뀌어요"),
+            "${stop.name}휴게소를 내비에 넣고 있어요"
+        )
     }
 
     private fun doRemove(stop: RestStop): RestOutcome {
+        if (job != null) return RestOutcome.BUSY
         val index = RestPlan.indexOf(stop.name, waypoints, naviWaypoints)
         if (index < 0 || waypoints.none { it.id == stop.id }) return RestOutcome.NOT_FOUND
-        waypoints = waypoints.filter { it.id != stop.id }
-        naviWaypoints = naviWaypoints?.filterIndexed { i, _ -> i != index }
-        onNavi(NaviCmd.Remove(index, stop.name))
-        say("${stop.name}휴게소를 경유지에서 뺐어요", 6000)
-        return RestOutcome.DONE
+        val route = RestPlan.names(waypoints, naviWaypoints)
+        return begin(
+            RestJob(RestAction.REMOVE, stop, null, index, removing = true),
+            NaviCmd.Remove(index, stop.name),
+            RestWork("${stop.name} 빼는 중", line(route.filterNot { RestPlan.same(it, stop.name) }) + " · 내비가 확인하면 바뀌어요"),
+            "${stop.name}휴게소를 내비에서 빼고 있어요"
+        )
     }
 
+    /** Takes [old] off first; [new] is sent only after the navigation reports [old] gone (see [checkJob]). */
     private fun doReplace(old: RestStop, new: RestStop): RestOutcome {
+        if (job != null) return RestOutcome.BUSY
         if (onRoute(new)) return RestOutcome.ALREADY
         val index = RestPlan.indexOf(old.name, waypoints, naviWaypoints)
         if (index < 0) return doAdd(new)
-        waypoints = waypoints.map { if (it.id == old.id) new else it }
-        naviWaypoints = naviWaypoints?.mapIndexed { i, n -> if (i == index) new.name else n }
-        onNavi(NaviCmd.Remove(index, old.name))
-        onNavi(NaviCmd.Add(new, index))
-        say("${old.name} 대신 ${new.name}휴게소를 경유지로 넣었어요", 6000)
+        val route = RestPlan.names(waypoints, naviWaypoints)
+        return begin(
+            RestJob(RestAction.REPLACE, new, old, index, removing = true),
+            NaviCmd.Remove(index, old.name),
+            RestWork("${withRo(new.name)} 바꾸는 중", line(route.map { if (RestPlan.same(it, old.name)) new.name else it }) + " · 내비가 확인하면 바뀌어요"),
+            "${old.name} 대신 ${new.name}휴게소를 내비에 넣고 있어요"
+        )
+    }
+
+    private fun begin(j: RestJob, cmd: NaviCmd, work: RestWork, text: String): RestOutcome {
+        workNote = null
+        if (!onNavi(cmd)) {
+            fail(RestWork("내비에 보내지 못했어요", "내비 연결을 확인한 뒤 다시 해 주세요", failed = true))
+            return RestOutcome.NOT_SENT
+        }
+        j.work = work
+        j.stepSinceMs = clock()
+        job = j
+        say(text, Policy.REST_STEP_TIMEOUT_MS * 2)
         return RestOutcome.DONE
     }
 
+    /** The navigation reported its waypoints ([names], while guiding): done, next step, or still waiting. */
+    private fun checkJob(names: List<String>) {
+        val j = job ?: return
+        val gone = names.none { RestPlan.same(it, (j.old ?: j.stop).name) }
+        val there = names.any { RestPlan.same(it, j.stop.name) }
+        when {
+            j.removing && gone && j.kind == RestAction.REPLACE -> {
+                // the old one is off; now the new one, at the same place on the route
+                j.removing = false
+                waypoints = waypoints.filter { it.id != j.old?.id }
+                val index = minOf(j.index, names.size)
+                if (!onNavi(NaviCmd.Add(j.stop, index))) {
+                    job = null
+                    fail(RestWork("${j.old?.name}만 빠졌어요", "${j.stop.name}휴게소는 내비에 보내지 못했어요 · 다시 해 주세요", failed = true))
+                    return
+                }
+                j.index = index
+                j.stepSinceMs = clock()
+            }
+            j.removing && gone -> {
+                job = null
+                waypoints = waypoints.filter { it.id != j.stop.id }
+                pickedRest = null
+                say("${j.stop.name}휴게소를 내비 경유지에서 뺐어요", 6000)
+            }
+            !j.removing && there -> {
+                job = null
+                if (waypoints.none { it.id == j.stop.id }) waypoints = waypoints + j.stop
+                pickedRest = null
+                say(
+                    if (j.kind == RestAction.REPLACE) "${j.old?.name} 대신 ${j.stop.name}휴게소가 내비 경유지에 들어갔어요"
+                    else "${j.stop.name}휴게소가 내비 경유지에 들어갔어요", 6000
+                )
+            }
+        }
+    }
+
+    private fun checkJobTimeout(now: Long) {
+        val j = job ?: return
+        if (now - j.stepSinceMs < Policy.REST_STEP_TIMEOUT_MS) return
+        job = null
+        fail(
+            when {
+                j.kind == RestAction.REPLACE && !j.removing ->
+                    RestWork("${j.old?.name}만 빠졌어요", "${j.stop.name}휴게소는 내비가 받지 않았어요 · 다시 해 주세요", failed = true)
+                j.kind == RestAction.REMOVE || j.kind == RestAction.REPLACE ->
+                    RestWork("내비가 받지 않았어요", "${(j.old ?: j.stop).name}휴게소가 그대로 있어요 · 다시 해 주세요", failed = true)
+                else -> RestWork("내비가 받지 않았어요", "${j.stop.name}휴게소가 들어가지 않았어요 · 다시 해 주세요", failed = true)
+            }
+        )
+    }
+
+    private fun fail(note: RestWork) {
+        workNote = note
+        workNoteUntilMs = clock() + Policy.REST_FAIL_SHOW_MS
+        say("${note.title}. ${note.line.substringBefore(" · ")}", Policy.REST_FAIL_SHOW_MS)
+    }
+
+    /** The navigation is guiding to a destination (it reports its waypoints only then). */
+    private fun routing(): Boolean = naviWaypoints != null
+
+    private fun line(names: List<String>): String = (listOf("출발") + names + dest()).joinToString(" → ")
+
     private fun finish(outcome: RestOutcome): RestOutcome {
         when (outcome) {
-            RestOutcome.DONE -> pickedRest = null
+            RestOutcome.DONE, RestOutcome.NOT_SENT -> {}
+            RestOutcome.NO_ROUTE -> say("내비에 목적지를 먼저 넣어 주세요", 6000)
+            RestOutcome.BUSY -> say("내비가 아직 경로를 바꾸는 중이에요. 잠시 뒤에 다시 해 주세요", 5000)
             RestOutcome.FULL -> say("경유지가 꽉 찼어요. 내비 경유지는 2개까지예요", 6000)
             RestOutcome.ALREADY -> say("이미 경유지에 있어요", 4000)
             RestOutcome.NOT_FOUND -> say("앞쪽에 그런 휴게소가 없어요", 5000)
@@ -440,6 +555,8 @@ class CareBrain(
         suggestion = null
         suggestionWhy = ""
         waypoints = emptyList()
+        job = null
+        workNote = null
     }
 
     private fun endTrip() {
@@ -456,6 +573,8 @@ class CareBrain(
         suggestion = null
         suggestionWhy = ""
         waypoints = emptyList()
+        job = null
+        workNote = null
     }
 
     private fun startRelief(seats: Set<Seat>) {
@@ -552,11 +671,13 @@ class CareBrain(
                 destinationFromNavi = naviDestination != null,
                 origin = originText,
                 naviWaypoints = naviWaypoints,
+                naviRouting = routing(),
                 pickedRest = pickedRest,
                 restAfterMin = restAfter,
                 suggestion = suggestion,
                 suggestionWhy = suggestionWhy,
                 waypoints = waypoints,
+                restWork = job?.work ?: workNote,
                 history = history
             )
         }
@@ -567,6 +688,29 @@ private const val FIRST_GUIDE_MS = 8_000L
 private const val SPEAK_DELAY_MS = 5_000L
 private const val RELIEF_GUIDE = "화면 대신 먼 곳을 보세요"
 private const val WINDOW_HINT = "밖이 괜찮으면 창문을 조금 열어 보세요"
+
+/**
+ * One route change waiting for the navigation. [removing] = the Remove step is out (a replace sends the Add after it);
+ * [stop] is the stop added (or removed for [RestAction.REMOVE]); [old] is the stop a replace takes off.
+ */
+private class RestJob(
+    val kind: RestAction,
+    val stop: RestStop,
+    val old: RestStop?,
+    var index: Int,
+    var removing: Boolean
+) {
+    var stepSinceMs = 0L
+    var work: RestWork? = null
+}
+
+/** "평택" -> "평택으로", "고삼호수" -> "고삼호수로" (no final consonant, or ㄹ, takes 로). */
+private fun withRo(word: String): String {
+    val c = word.lastOrNull() ?: return word
+    if (c !in '가'..'힣') return word + "로"
+    val jong = (c - '가') % 28
+    return word + if (jong == 0 || jong == 8) "로" else "으로"
+}
 
 /** What [CareBrain.voiceRelief] did, so the voice call can answer Gleo AI. */
 enum class VoiceReliefResult { STARTED, ASKING, RETARGETED, ALREADY }

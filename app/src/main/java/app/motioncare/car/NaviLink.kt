@@ -1,4 +1,4 @@
-// ver 2.0.0 | 2026-11-11 22:40
+// ver 2.2.0 | 2026-11-11 22:55
 package app.motioncare.car
 
 import ai.pleos.playground.navi.constants.NaviErrorCode
@@ -7,6 +7,7 @@ import ai.pleos.playground.navi.constants.WaypointIndex
 import ai.pleos.playground.navi.data.CurrentLocationInfo
 import ai.pleos.playground.navi.data.DestinationInfo
 import ai.pleos.playground.navi.data.RequestWaypointInfo
+import ai.pleos.playground.navi.data.RouteInfo
 import ai.pleos.playground.navi.data.RouteStateInfo
 import ai.pleos.playground.navi.data.WaypointChangedInfo
 import ai.pleos.playground.navi.data.WaypointInfo
@@ -25,6 +26,10 @@ import app.motioncare.core.RestArea
  * Results arrive as events on a binder thread; the callbacks given here post them to the main thread.
  * The waypoint list is passed on only while the navigation is routing (with no route it reports an empty list,
  * which says nothing about what the app asked for).
+ *
+ * Routing is told by the status events and by whether the navigation has a destination. getRouteStateInfo is only
+ * logged: on the emulator it answered "not routing" while the navigation was guiding to 부산역 (2026-11-11).
+ * While a route is being changed the navigation reports no destination, so that time counts as not routing.
  */
 class NaviLink(
     private val context: Context,
@@ -45,9 +50,10 @@ class NaviLink(
         }
 
         override fun onRouteStateInfo(routeStateInfo: RouteStateInfo) {
-            routing = routeStateInfo.isRouting
-            main.post { log("내비 경로 상태: ${if (routing) "안내 중" else "안내 없음"}") }
-            if (routing) refreshRoute() else main.post { onWaypoints(null); onDestination(null) }
+            val said = routeStateInfo.isRouting
+            main.post { log("내비 경로 상태(참고): ${if (said) "안내 중" else "안내 없음"}") }
+            // not trusted (see above): the destination decides
+            refreshRoute()
         }
 
         override fun onNavigationStatus(navigationStatus: NavigationStatus) {
@@ -58,7 +64,15 @@ class NaviLink(
 
         override fun onDestinationInfo(destinationInfo: DestinationInfo) {
             val name = destinationInfo.name
-            main.post { log("내비 목적지: $name"); onDestination(name) }
+            val was = routing
+            routing = name.isNotBlank()
+            main.post {
+                log("내비 목적지: $name")
+                onDestination(name)
+                if (!routing) onWaypoints(null)
+            }
+            // the waypoint answer may have come before this one, while routing was not known yet
+            if (routing && !was) safe("경유지 조회") { it.getWaypointInfo() }
         }
 
         override fun onDestinationChanged() {
@@ -114,6 +128,18 @@ class NaviLink(
             log("내비 초기화 오류: ${e.message ?: e.javaClass.simpleName}")
         }
     }
+
+    /** Test tool (debug build): starts route guidance to a destination, so waypoints can be tried on the emulator. */
+    fun requestRoute(name: String, lat: Double, lon: Double, address: String) = safe("경로 요청") {
+        it.requestRoute(RouteInfo(latitude = lat, longitude = lon, poiId = "", poiName = name, poiSubId = "0", address = address))
+        main.post { log("내비 경로 요청: $name ($lat, $lon)") }
+    }
+
+    /** Test tool (debug build): ends route guidance. */
+    fun cancelRoute() = safe("경로 취소") { it.cancelRoute() }
+
+    /** Asks the navigation for its route state, destination and waypoints again. */
+    fun refresh() = safe("경로 상태 조회") { it.getRouteStateInfo(); it.getDestinationInfo(); it.getWaypointInfo() }
 
     /** Asks for the position again (the service calls this every so often). */
     fun requestLocation() = safe("위치 조회") { it.getCurrentLocationInfo() }

@@ -1,4 +1,4 @@
-// ver 1.0.0 | 2026-11-11 22:20
+// ver 1.2.0 | 2026-11-11 22:50
 package app.motioncare.core
 
 import app.motioncare.data.DemoNavi
@@ -12,14 +12,29 @@ import org.junit.Test
 class RestPlanTest {
 
     private val cmds = mutableListOf<NaviCmd>()
+    private var now = 1_000_000L
 
-    private fun brain(): CareBrain {
+    /** [sends] = whether the navigation can be reached */
+    private fun brain(sends: Boolean = true): CareBrain {
         Live.update { LiveState() }
         cmds.clear()
-        val b = CareBrain(clock = { 1_000_000L }, speak = {}, onDesired = {}, onNavi = { cmds += it })
+        now = 1_000_000L
+        val b = CareBrain(clock = { now }, speak = {}, onDesired = {}, onNavi = { cmds += it; sends })
         b.init()
+        b.onNaviWaypoints(emptyList())  // guiding to a destination, no waypoints yet
         return b
     }
+
+    /** The navigation reports its waypoints (only while guiding), as it does after each change. */
+    private fun CareBrain.navi(vararg names: String) = onNaviWaypoints(names.toList())
+
+    /** Adds and lets the navigation confirm it. */
+    private fun CareBrain.addDone(stop: RestStop, vararg before: String) {
+        assertEquals(RestOutcome.DONE, restAdd(stop.id))
+        navi(*before, stop.name + "휴게소")
+    }
+
+    private fun work() = Live.state.value.restWork
 
     private val s get() = DemoNavi.stops
 
@@ -52,20 +67,84 @@ class RestPlanTest {
         assertEquals("", PlaceText.short("  "))
     }
 
-    // ---- screen buttons ----
+    // ---- screen buttons: one change at a time, shown only once the navigation reports it ----
 
     @Test
-    fun adding_puts_the_stop_first_and_asks_the_navigation() {
+    fun adding_asks_the_navigation_and_shows_it_only_once_the_navigation_reports_it() {
         val b = brain()
         assertEquals(RestOutcome.DONE, b.restAdd(s[0].id))
-        assertEquals(listOf(s[0].id), ours())
         assertEquals(listOf<NaviCmd>(NaviCmd.Add(s[0], 0)), cmds)
+        assertTrue(ours().isEmpty())
+        assertEquals("${s[0].name} 넣는 중", work()?.title)
+        // the navigation drops the route while it changes it, then reports the new one
+        b.onNaviWaypoints(null)
+        assertTrue(ours().isEmpty())
+        b.navi(s[0].name + "휴게소")
+        assertEquals(listOf(s[0].id), ours())
+        assertNull(work())
+    }
+
+    @Test
+    fun a_second_request_while_the_navigation_is_changing_is_not_sent() {
+        val b = brain()
+        b.restAdd(s[0].id)
+        assertEquals(RestOutcome.BUSY, b.restAdd(s[1].id))
+        assertEquals(1, cmds.size)
+        b.navi(s[0].name)
+        assertEquals(RestOutcome.DONE, b.restAdd(s[1].id))
+        assertEquals(NaviCmd.Add(s[1], 1), cmds.last())
+    }
+
+    @Test
+    fun no_report_in_time_means_it_did_not_go_through() {
+        val b = brain()
+        b.restAdd(s[0].id)
+        now += Policy.REST_STEP_TIMEOUT_MS - 1
+        b.tick()
+        assertTrue(work()?.failed == false)
+        now += 1
+        b.tick()
+        assertTrue(work()?.failed == true)
+        assertEquals("내비가 받지 않았어요", work()?.title)
+        assertTrue(ours().isEmpty())
+        // the failure stays a while, and a new try is allowed right away
+        assertEquals(RestOutcome.DONE, b.restAdd(s[0].id))
+        assertTrue(work()?.failed == false)
+    }
+
+    @Test
+    fun the_failure_note_goes_away_after_a_while() {
+        val b = brain()
+        b.restAdd(s[0].id)
+        now += Policy.REST_STEP_TIMEOUT_MS
+        b.tick()
+        now += Policy.REST_FAIL_SHOW_MS
+        b.tick()
+        assertNull(work())
+    }
+
+    @Test
+    fun when_the_navigation_cannot_be_reached_nothing_is_waiting() {
+        val b = brain(sends = false)
+        assertEquals(RestOutcome.NOT_SENT, b.restAdd(s[0].id))
+        assertTrue(work()?.failed == true)
+        assertTrue(ours().isEmpty())
+    }
+
+    @Test
+    fun the_pick_stays_until_the_navigation_confirms() {
+        val b = brain()
+        b.pickRest(s[1].id)
+        b.restAdd(s[1].id)
+        assertEquals(s[1].id, Live.state.value.pickedRest)
+        b.navi(s[1].name)
+        assertNull(Live.state.value.pickedRest)
     }
 
     @Test
     fun adding_the_same_stop_twice_changes_nothing() {
         val b = brain()
-        b.restAdd(s[0].id)
+        b.addDone(s[0])
         assertEquals(RestOutcome.ALREADY, b.restAdd(s[0].id))
         assertEquals(1, cmds.size)
     }
@@ -73,9 +152,10 @@ class RestPlanTest {
     @Test
     fun a_second_stop_goes_second_and_a_third_is_refused() {
         val b = brain()
-        b.restAdd(s[0].id)
+        b.addDone(s[0])
         assertEquals(RestOutcome.DONE, b.restAdd(s[1].id))
         assertEquals(NaviCmd.Add(s[1], 1), cmds.last())
+        b.navi(s[0].name, s[1].name)
         assertEquals(RestOutcome.FULL, b.restAdd(s[2].id))
         assertEquals(listOf(s[0].id, s[1].id), ours())
         assertEquals(2, cmds.size)
@@ -84,22 +164,42 @@ class RestPlanTest {
     @Test
     fun the_drivers_own_waypoint_counts_toward_the_limit() {
         val b = brain()
-        b.onNaviWaypoints(listOf("시흥"))
+        b.navi("시흥")
         assertEquals(RestOutcome.DONE, b.restAdd(s[0].id))
         assertEquals(NaviCmd.Add(s[0], 1), cmds.last())
+        b.navi("시흥", s[0].name)
         assertEquals(RestOutcome.FULL, b.restAdd(s[1].id))
     }
 
     @Test
-    fun replacing_takes_ours_off_and_puts_the_new_one_in_its_place() {
+    fun replacing_takes_ours_off_first_and_sends_the_new_one_only_after_the_navigation_reports_it_gone() {
         val b = brain()
-        b.onNaviWaypoints(listOf("시흥"))
-        b.restAdd(s[0].id)
+        b.navi("시흥")
+        b.addDone(s[0], "시흥")
         cmds.clear()
         assertEquals(RestOutcome.DONE, b.restReplace(s[1].id))
+        assertEquals(listOf<NaviCmd>(NaviCmd.Remove(1, s[0].name)), cmds)
+        // while the navigation changes the route it reports nothing: still waiting, nothing more sent
+        b.onNaviWaypoints(null)
+        assertEquals(1, cmds.size)
+        b.navi("시흥")
         assertEquals(listOf<NaviCmd>(NaviCmd.Remove(1, s[0].name), NaviCmd.Add(s[1], 1)), cmds)
+        assertTrue(work()?.title?.let { it.startsWith(s[1].name) && it.endsWith(" 바꾸는 중") } == true)
+        b.navi("시흥", s[1].name)
         assertEquals(listOf(s[1].id), ours())
-        assertEquals(listOf("시흥", s[1].name), Live.state.value.naviWaypoints)
+        assertNull(work())
+    }
+
+    @Test
+    fun a_replace_whose_new_stop_is_not_taken_says_only_the_old_one_went() {
+        val b = brain()
+        b.addDone(s[0])
+        b.restReplace(s[1].id)
+        b.navi()
+        now += Policy.REST_STEP_TIMEOUT_MS
+        b.tick()
+        assertEquals("${s[0].name}만 빠졌어요", work()?.title)
+        assertTrue(ours().isEmpty())
     }
 
     @Test
@@ -110,20 +210,31 @@ class RestPlanTest {
     }
 
     @Test
-    fun removing_takes_it_off_at_its_place_on_the_route() {
+    fun removing_takes_it_off_at_its_place_and_waits_for_the_navigation() {
         val b = brain()
-        b.restAdd(s[0].id)
+        b.addDone(s[0])
         b.restAdd(s[1].id)
+        b.navi(s[0].name, s[1].name)
         cmds.clear()
         assertEquals(RestOutcome.DONE, b.restRemove(s[0].id))
         assertEquals(listOf<NaviCmd>(NaviCmd.Remove(0, s[0].name)), cmds)
+        assertEquals(listOf(s[0].id, s[1].id), ours())
+        b.navi(s[1].name)
         assertEquals(listOf(s[1].id), ours())
+    }
+
+    @Test
+    fun a_stop_the_driver_took_off_in_the_navigation_is_no_longer_ours() {
+        val b = brain()
+        b.addDone(s[0])
+        b.navi()
+        assertTrue(ours().isEmpty())
     }
 
     @Test
     fun only_waypoints_the_app_put_there_can_be_removed() {
         val b = brain()
-        b.onNaviWaypoints(listOf("시흥"))
+        b.navi("시흥")
         assertEquals(RestOutcome.NOT_FOUND, b.restRemove(s[2].id))
         assertTrue(cmds.isEmpty())
     }
@@ -139,11 +250,27 @@ class RestPlanTest {
     }
 
     @Test
-    fun a_done_change_clears_the_pick() {
+    fun with_no_destination_in_the_navigation_nothing_is_sent() {
         val b = brain()
-        b.pickRest(s[1].id)
-        b.restAdd(s[1].id)
-        assertNull(Live.state.value.pickedRest)
+        b.onNaviWaypoints(null)
+        assertTrue(!Live.state.value.naviRouting)
+        assertEquals(RestOutcome.NO_ROUTE, b.restAdd(s[0].id))
+        assertEquals(RestOutcome.NO_ROUTE, b.restReplace(s[0].id))
+        assertEquals(RestOutcome.NO_ROUTE, b.voiceRest(RestAction.ADD, null).first)
+        assertTrue(cmds.isEmpty())
+        assertNull(work())
+        b.navi()
+        assertTrue(Live.state.value.naviRouting)
+        assertEquals(RestOutcome.DONE, b.restAdd(s[0].id))
+    }
+
+    @Test
+    fun while_the_navigation_changes_the_route_a_new_request_is_busy_not_no_route() {
+        val b = brain()
+        b.restAdd(s[0].id)
+        b.onNaviWaypoints(null)
+        assertEquals(RestOutcome.BUSY, b.restAdd(s[1].id))
+        assertEquals(RestOutcome.BUSY, b.voiceRest(RestAction.ADD, s[1].name).first)
     }
 
     // ---- voice ----
@@ -154,7 +281,7 @@ class RestPlanTest {
         val (o, name) = b.voiceRest(RestAction.ADD, s[1].name + "휴게소")
         assertEquals(RestOutcome.DONE, o)
         assertEquals(s[1].name, name)
-        assertEquals(listOf(s[1].id), ours())
+        assertEquals(listOf<NaviCmd>(NaviCmd.Add(s[1], 0)), cmds)
     }
 
     @Test
@@ -163,6 +290,14 @@ class RestPlanTest {
         val (o, name) = b.voiceRest(RestAction.ADD, null)
         assertEquals(RestOutcome.DONE, o)
         assertEquals(Policy.pickStop(s)?.name, name)
+    }
+
+    @Test
+    fun voice_while_the_navigation_is_changing_is_busy() {
+        val b = brain()
+        b.voiceRest(RestAction.ADD, s[0].name)
+        assertEquals(RestOutcome.BUSY, b.voiceRest(RestAction.ADD, s[1].name).first)
+        assertEquals(1, cmds.size)
     }
 
     @Test
@@ -175,16 +310,17 @@ class RestPlanTest {
     @Test
     fun voice_remove_without_a_name_takes_off_our_only_one() {
         val b = brain()
-        b.restAdd(s[0].id)
+        b.addDone(s[0])
         assertEquals(RestOutcome.DONE, b.voiceRest(RestAction.REMOVE, null).first)
+        b.navi()
         assertTrue(ours().isEmpty())
     }
 
     @Test
     fun voice_remove_without_a_name_and_two_of_ours_asks_which() {
         val b = brain()
-        b.restAdd(s[0].id)
-        b.restAdd(s[1].id)
+        b.addDone(s[0])
+        b.addDone(s[1], s[0].name)
         assertEquals(RestOutcome.ASK_PLACE, b.voiceRest(RestAction.REMOVE, null).first)
         assertEquals(2, ours().size)
     }
@@ -198,15 +334,17 @@ class RestPlanTest {
     @Test
     fun voice_replace_swaps_ours_for_the_named_one() {
         val b = brain()
-        b.restAdd(s[0].id)
+        b.addDone(s[0])
         assertEquals(RestOutcome.DONE, b.voiceRest(RestAction.REPLACE, s[1].name).first)
+        b.navi()
+        b.navi(s[1].name)
         assertEquals(listOf(s[1].id), ours())
     }
 
     @Test
     fun voice_replace_without_a_name_asks() {
         val b = brain()
-        b.restAdd(s[0].id)
+        b.addDone(s[0])
         assertEquals(RestOutcome.ASK_PLACE, b.voiceRest(RestAction.REPLACE, null).first)
         assertEquals(listOf(s[0].id), ours())
     }
@@ -214,7 +352,7 @@ class RestPlanTest {
     @Test
     fun voice_add_when_full_is_refused() {
         val b = brain()
-        b.onNaviWaypoints(listOf("시흥", "수원"))
+        b.navi("시흥", "수원")
         assertEquals(RestOutcome.FULL, b.voiceRest(RestAction.ADD, s[0].name).first)
         assertTrue(cmds.isEmpty())
     }

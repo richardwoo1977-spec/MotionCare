@@ -1,4 +1,4 @@
-// ver 1.3.0 | 2026-11-11 22:40
+// ver 1.5.0 | 2026-11-11 22:50
 package app.motioncare.service
 
 import android.app.Service
@@ -63,6 +63,20 @@ class CareService : Service() {
             run { it.addWaypoint(id) }
         }
 
+        /** Test tools (debug build): route guidance on the emulator's navigation. */
+        fun testRoute(start: Boolean) {
+            val s = instance ?: return
+            s.main.post {
+                if (start) s.navi?.requestRoute("부산역", 35.1151, 129.0415, "부산광역시 동구 중앙대로 206")
+                else s.navi?.cancelRoute()
+            }
+        }
+
+        fun testNaviRefresh() {
+            val s = instance ?: return
+            s.main.post { s.navi?.refresh() }
+        }
+
         fun setWindowOpenHigher(value: Boolean) {
             Store.windowOpenHigher = value
             Live.update { it.copy(windowOpenHigher = value) }
@@ -97,7 +111,12 @@ class CareService : Service() {
                 lastStatus = text
                 Notifier.updateStatus(this@CareService, text)
             }
-            if (++ticks % LOCATION_EVERY_SEC == 0) navi?.requestLocation()
+            // position, and the route state again: a route state missed at start would otherwise keep the rest
+            // buttons saying there is no destination
+            if (++ticks % LOCATION_EVERY_SEC == 0) {
+                navi?.requestLocation()
+                navi?.refresh()
+            }
             main.postDelayed(this, 1_000L)
         }
     }
@@ -108,14 +127,11 @@ class CareService : Service() {
      * A route change for the navigation. A removal followed by an addition (a swap) is sent 0.6 s apart so the
      * navigation has taken the waypoint off before the new one goes to the same place.
      */
-    private var naviBusyUntil = 0L
 
-    private fun sendToNavi(cmd: NaviCmd) {
-        val now = System.currentTimeMillis()
-        val at = maxOf(now, naviBusyUntil)
-        naviBusyUntil = at + if (cmd is NaviCmd.Remove) 600L else 0L
+    /** Sends one route change now (the brain sends the next only after the navigation reports this one). */
+    private fun sendToNavi(cmd: NaviCmd): Boolean {
         val area = (cmd as? NaviCmd.Add)?.let { DemoNavi.areaOf(it.stop.id) }
-        main.postDelayed({ navi?.run(cmd, area) }, at - now)
+        return navi?.run(cmd, area) ?: false
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

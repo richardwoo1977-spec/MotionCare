@@ -1,4 +1,4 @@
-// ver 1.3.0 | 2026-11-11 22:10
+// ver 1.4.0 | 2026-11-11 22:40
 package app.motioncare.core
 
 /** Pure rules, no Android types, so they can be unit tested. */
@@ -50,6 +50,12 @@ object Policy {
     /** Stops closer than this are skipped (too late to leave the road); the screen shows at most three digits. */
     const val REST_MIN_KM = 3.0
     const val REST_MAX_KM = 999.0
+
+    /** How long one route change may wait for the navigation to report it (about 8 seconds on the emulator). */
+    const val REST_STEP_TIMEOUT_MS = 20_000L
+
+    /** How long a failed route change stays on the rest screen. */
+    const val REST_FAIL_SHOW_MS = 10_000L
 
     /**
      * The stop to offer: the nearest one with a toilet; a stop with a nursing room or kids zone wins

@@ -1,4 +1,4 @@
-// ver 1.0.0 | 2026-11-11 22:10
+// ver 1.2.0 | 2026-11-11 22:50
 package app.motioncare.core
 
 /** What the app asks the navigation for. [index] 0 = first waypoint, 1 = second. */
@@ -7,13 +7,25 @@ sealed class NaviCmd {
     data class Remove(val index: Int, val name: String) : NaviCmd()
 }
 
+/**
+ * A route change the navigation has not confirmed yet, for the rest screen. [failed] = it did not go through;
+ * [title] / [line] are what the screen shows meanwhile.
+ */
+data class RestWork(val title: String, val line: String, val failed: Boolean = false)
+
 /** "쉬어 갈 곳" by voice: put a rest area on the route, swap the one we put there, or take one off. */
 enum class RestAction { ADD, REPLACE, REMOVE }
 
 /** How a rest-area request ended. */
 enum class RestOutcome {
-    /** The navigation was asked to change the route. */
+    /** The navigation was asked to change the route (it is shown as done only once the navigation reports it). */
     DONE,
+    /** An earlier change is still waiting for the navigation; nothing was sent. */
+    BUSY,
+    /** The navigation is not guiding to a destination; nothing was sent (it answers a waypoint with an error then). */
+    NO_ROUTE,
+    /** The navigation could not be reached; nothing was sent. */
+    NOT_SENT,
     /** That rest area is already on the route. */
     ALREADY,
     /** The navigation already has two waypoints (its limit). */

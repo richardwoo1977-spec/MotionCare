@@ -295,6 +295,11 @@ private fun VoiceTestPanel() {
                 "${second}도" to { send("REST_STOP_WAYPOINT", "{\"action\":\"ADD\",\"place\":\"${second}휴게소\"}") },
                 "${third}로" to { send("REST_STOP_WAYPOINT", "{\"action\":\"REPLACE\",\"place\":\"$third\"}") },
                 "빼기" to { send("REST_STOP_WAYPOINT", "{\"action\":\"REMOVE\"}") }
+            ),
+            listOf(
+                "경로 부산" to { CareService.testRoute(true) },
+                "경로 취소" to { CareService.testRoute(false) },
+                "내비 조회" to { CareService.testNaviRefresh() }
             )
         )
         rows.forEach { row ->

@@ -1,4 +1,4 @@
-// ver 1.0.0 | 2026-11-11 22:45
+// ver 1.3.0 | 2026-11-11 22:58
 package app.motioncare.ui
 
 import androidx.compose.foundation.Canvas
@@ -46,6 +46,8 @@ import app.motioncare.service.CareService
 //
 // Three rest areas side by side. A card only picks; the big button below says what it will do and shows the route
 // it will make. The stop on the route is a filled card with a flag; the picked one has a thick outline.
+// A stop counts as on the route only once the navigation reports it. While a change waits for the navigation the
+// buttons give way to one status ("평택 넣는 중"); a change that did not go through is written above the buttons.
 
 private val Ink = Color(0xFF04201A)
 private val QuietCard = Color(0x0FFFFFFF)          // white at 6 %
@@ -71,7 +73,8 @@ private fun withRo(word: String): String {
 @Composable
 fun RestScreen(live: LiveState) {
     val stops = threeStops(live)
-    val ours = live.waypoints
+    // with no route the navigation holds no waypoints: nothing is marked as on the route then
+    val ours = if (live.naviRouting) live.waypoints else emptyList()
     val route = RestPlan.names(ours, live.naviWaypoints)
     val dest = live.destination
     // nothing on the route and nothing picked: the suggested stop counts as picked, so one touch is enough
@@ -82,7 +85,7 @@ fun RestScreen(live: LiveState) {
         Row(Modifier.height(u(111)), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(u(28))) {
             Txt("쉬어 갈 곳", 60, Color.White, FontWeight.Medium, maxLines = 1, spacing = -0.03f, modifier = Modifier.alignByBaseline())
             Txt(
-                "목적지 $dest" + (if (live.destinationFromNavi) "" else " (시연)") + " · 화장실 있는 앞쪽 휴게소",
+                (if (live.destinationFromNavi) "목적지 $dest" else "내비 목적지 없음") + " · 화장실 있는 앞쪽 휴게소",
                 28, Palette.Sub, maxLines = 1, modifier = Modifier.alignByBaseline()
             )
         }
@@ -92,11 +95,16 @@ fun RestScreen(live: LiveState) {
         }
         Row(Modifier.offset(u(0), u(150)).fillMaxWidth().height(u(560)), horizontalArrangement = Arrangement.spacedBy(u(24))) {
             stops.forEachIndexed { i, st ->
-                val added = ours.any { it.id == st.id } || live.naviWaypoints?.any { RestPlan.same(it, st.name) } == true
+                val added = live.naviRouting &&
+                    (ours.any { it.id == st.id } || live.naviWaypoints?.any { RestPlan.same(it, st.name) } == true)
                 RestCard(st, i, added, st.id == pickedId, Modifier.weight(1f))
             }
         }
-        Txt(
+        val note = live.restWork?.takeIf { it.failed }
+        if (note != null) Txt(
+            "${note.title} · ${note.line}", 34, Color.White, FontWeight.Medium, maxLines = 1, ellipsis = true,
+            modifier = Modifier.offset(u(0), u(736))
+        ) else Txt(
             "카드를 눌러 고른 뒤 아래 버튼을 누르세요 · 휴게소 자료 ${DemoNavi.catalogSize}곳(한국도로공사, 기준일 ${DemoNavi.dataAsOf ?: "-"}) · 거리는 직선 기준",
             26, Faint, maxLines = 1, modifier = Modifier.offset(u(0), u(740))
         )
@@ -107,7 +115,13 @@ fun RestScreen(live: LiveState) {
             val pickedOnRoute = picked != null && (ours.any { it.id == picked.id } || route.any { RestPlan.same(it, picked.name) })
             val full = route.size >= RestPlan.MAX
             fun line(names: List<String>) = (listOf("출발") + names + dest).joinToString(" → ")
+            val work = live.restWork?.takeIf { !it.failed }
             when {
+                work != null -> ActionButton(work.title, work.line, Kind.STATUS, Modifier.weight(1f)) {}
+                // with no destination the navigation answers a waypoint with an error dialog: nothing to press
+                !live.naviRouting -> ActionButton(
+                    "내비에 목적지를 먼저 넣어 주세요", "목적지가 있어야 휴게소를 경유지로 넣을 수 있어요", Kind.STATUS, Modifier.weight(1f)
+                ) {}
                 picked == null && ours.isNotEmpty() -> ActionButton(
                     "${ours.last().name}에 들렀다 가요", line(route) + " · 다른 곳을 고르면 바꿀 수 있어요",
                     Kind.STATUS, Modifier.weight(1f)

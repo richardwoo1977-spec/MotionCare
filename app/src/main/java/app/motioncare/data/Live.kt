@@ -1,4 +1,4 @@
-// ver 1.6.0 | 2026-11-11 22:10
+// ver 1.8.0 | 2026-11-11 22:50
 package app.motioncare.data
 
 import app.motioncare.core.CarLayout
@@ -7,6 +7,7 @@ import app.motioncare.core.CheckRow
 import app.motioncare.core.Gear
 import app.motioncare.core.HistoryEvent
 import app.motioncare.core.RestStop
+import app.motioncare.core.RestWork
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -38,10 +39,14 @@ data class LiveState(
     val restAfterMin: Int? = null,
     val suggestion: RestStop? = null,
     val suggestionWhy: String = "",
-    /** rest areas the app put on the route */
+    /** a route change sent to the navigation and not confirmed yet, or one that just failed; null = none */
+    val restWork: RestWork? = null,
+    /** rest areas the app put on the route (only those the navigation has confirmed) */
     val waypoints: List<RestStop> = emptyList(),
     /** waypoint names on the navigation's route in order (it may hold the driver's own); null = not reported */
     val naviWaypoints: List<String>? = null,
+    /** the navigation is guiding to a destination; waypoints can be put on the route only then */
+    val naviRouting: Boolean = false,
     /** rest area id picked on the rest screen (not yet acted on) */
     val pickedRest: String? = null,
     /** the destination comes from the navigation (false = the demo destination chosen in the app) */
