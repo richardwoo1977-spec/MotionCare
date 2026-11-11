@@ -1,11 +1,14 @@
-// ver 1.3.0 | 2026-11-11 18:30
+// ver 1.4.0 | 2026-11-11 22:25
 package app.motioncare.service
 
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import app.motioncare.core.GleoCall
+import app.motioncare.core.GleoRest
 import app.motioncare.core.GleoSeat
+import app.motioncare.core.RestAction
+import app.motioncare.core.RestOutcome
 import app.motioncare.core.Seat
 import app.motioncare.core.VoiceReliefResult
 import app.motioncare.data.DiagLog
@@ -46,8 +49,33 @@ class GleoReceiver : BroadcastReceiver() {
                 }
                 return
             }
-            GleoCall.RECOVERED -> CareService.runOrStart(context) { it.reliefEnd() }
-            GleoCall.OPEN_APP -> Unit
+            GleoCall.RECOVERED -> {
+                CareService.runOrStart(context) { it.reliefEnd() }
+                reply(app, name, "success", "Relief has ended and the cabin air is back to its earlier settings.")
+                return
+            }
+            GleoCall.REST_STOP -> {
+                val text = paramText(intent)
+                val action = GleoRest.action(text) ?: RestAction.ADD
+                val place = GleoRest.place(text)
+                DiagLog.w("Gleo 휴게소: ${action.name}" + (place?.let { " · $it" } ?: ""))
+                CareService.runOrStart(context) { brain ->
+                    val (outcome, stop) = brain.voiceRest(action, place)
+                    when (outcome) {
+                        RestOutcome.DONE -> reply(app, name, "success", when (action) {
+                            RestAction.ADD -> "$stop rest area is now a waypoint on the route."
+                            RestAction.REPLACE -> "$stop rest area now replaces the earlier rest stop on the route."
+                            RestAction.REMOVE -> "$stop rest area was taken off the route."
+                        })
+                        RestOutcome.ALREADY -> reply(app, name, "success", "$stop rest area is already on the route.")
+                        RestOutcome.FULL -> reply(app, name, "fail", "The navigation already has two waypoints, its limit.")
+                        RestOutcome.NOT_FOUND -> reply(app, name, "fail", "There is no rest area by that name ahead on the route.")
+                        RestOutcome.NOTHING_OURS -> reply(app, name, "fail", "This app has not put any rest area on the route.")
+                        RestOutcome.ASK_PLACE -> reply(app, name, "asking", "Which rest area?", MISSING_PLACE)
+                    }
+                }
+                return
+            }
         }
         reply(app, name, "success", "요청을 받았어요")
     }
@@ -64,8 +92,16 @@ class GleoReceiver : BroadcastReceiver() {
         return emptySet()
     }
 
+    /** All extras as one text, for the parameters of the rest-area call (the extra's name is not fixed in the guide). */
+    @Suppress("DEPRECATION")
+    private fun paramText(intent: Intent): String {
+        val extras = intent.extras ?: return ""
+        return extras.keySet().joinToString(" ") { k -> extras.get(k)?.toString() ?: "" }
+    }
+
     /** Tells Gleo the call was handled (response format from the Pleos callback guide: success / asking / fail / error). */
     private fun reply(context: Context, functionName: String, status: String, message: String, data: String? = null) {
+        DiagLog.w("Gleo 응답: $status · ${message.take(40)}")
         try {
             val body = JSONObject()
                 .put("functionName", functionName)
@@ -86,5 +122,8 @@ class GleoReceiver : BroadcastReceiver() {
     private companion object {
         /** "data" of an asking answer: names the missing field. */
         const val MISSING_SEAT = "[{\"missingField\":\"seat\"}]"
+
+        /** "data" of an asking answer for the rest-area call. */
+        const val MISSING_PLACE = "[{\"missingField\":\"place\"}]"
     }
 }

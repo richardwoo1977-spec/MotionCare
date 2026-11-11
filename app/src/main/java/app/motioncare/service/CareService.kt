@@ -1,4 +1,4 @@
-// ver 1.2.0 | 2026-11-11 17:30
+// ver 1.3.0 | 2026-11-11 22:40
 package app.motioncare.service
 
 import android.app.Service
@@ -15,6 +15,7 @@ import app.motioncare.data.DemoNavi
 import app.motioncare.car.VehicleLink
 import app.motioncare.core.CareBrain
 import app.motioncare.core.CareMode
+import app.motioncare.core.NaviCmd
 import app.motioncare.data.DiagLog
 import app.motioncare.data.Live
 import app.motioncare.data.RestAssets
@@ -28,6 +29,9 @@ class CareService : Service() {
 
     companion object {
         @Volatile private var instance: CareService? = null
+
+        /** The position is asked from the navigation this often (seconds). */
+        private const val LOCATION_EVERY_SEC = 30
 
         fun start(context: Context) {
             try {
@@ -54,15 +58,9 @@ class CareService : Service() {
             return true
         }
 
-        /** "경유지로 추가": the app's own list, and the built-in navigation through NaviHelper when it is connected. */
+        /** "경유지로 넣기" (home card): the route change goes to the navigation through [CareBrain]'s onNavi. */
         fun addWaypoint(id: String) {
-            val s = instance ?: return
-            s.main.post {
-                s.brain?.addWaypoint(id)
-                val area = DemoNavi.areaOf(id)
-                if (area == null) DiagLog.w("내비 경유지: 시연용 휴게소라 좌표 없음")
-                else s.navi?.addWaypoint(area)
-            }
+            run { it.addWaypoint(id) }
         }
 
         fun setWindowOpenHigher(value: Boolean) {
@@ -99,8 +97,25 @@ class CareService : Service() {
                 lastStatus = text
                 Notifier.updateStatus(this@CareService, text)
             }
+            if (++ticks % LOCATION_EVERY_SEC == 0) navi?.requestLocation()
             main.postDelayed(this, 1_000L)
         }
+    }
+
+    private var ticks = 0
+
+    /**
+     * A route change for the navigation. A removal followed by an addition (a swap) is sent 0.6 s apart so the
+     * navigation has taken the waypoint off before the new one goes to the same place.
+     */
+    private var naviBusyUntil = 0L
+
+    private fun sendToNavi(cmd: NaviCmd) {
+        val now = System.currentTimeMillis()
+        val at = maxOf(now, naviBusyUntil)
+        naviBusyUntil = at + if (cmd is NaviCmd.Remove) 600L else 0L
+        val area = (cmd as? NaviCmd.Add)?.let { DemoNavi.areaOf(it.stop.id) }
+        main.postDelayed({ navi?.run(cmd, area) }, at - now)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -119,7 +134,8 @@ class CareService : Service() {
         val b = CareBrain(
             clock = System::currentTimeMillis,
             speak = { text -> spk.say(text) },
-            onDesired = { d -> link?.apply(d) }
+            onDesired = { d -> link?.apply(d) },
+            onNavi = { cmd -> sendToNavi(cmd) }
         )
         brain = b
         b.init()
@@ -134,7 +150,14 @@ class CareService : Service() {
             onRows = { n -> main.post { Live.update { s -> s.copy(rows = n) } } }
         )
         l.windowOpenHigher = Store.windowOpenHigher
-        navi = NaviLink(this, DiagLog::w) { _, text -> main.post { DiagLog.w(text) } }.also { it.start() }
+        navi = NaviLink(
+            context = this,
+            main = main,
+            log = DiagLog::w,
+            onWaypoints = { names -> b.onNaviWaypoints(names) },
+            onDestination = { name -> b.onNaviDestination(name) },
+            onLocation = { address, lat, lon -> b.onLocation(address, lat, lon) }
+        ).also { it.start() }
         link = l
         val ok = l.start()
         Live.update { it.copy(sdkReady = ok) }

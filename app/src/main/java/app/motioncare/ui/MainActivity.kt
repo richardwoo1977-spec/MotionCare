@@ -1,4 +1,4 @@
-// ver 1.2.0 | 2026-11-11 20:35
+// ver 1.3.0 | 2026-11-11 22:30
 package app.motioncare.ui
 
 import android.Manifest
@@ -9,7 +9,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.mutableStateOf
-import app.motioncare.core.GleoCall
 import app.motioncare.data.DiagLog
 import app.motioncare.data.RestAssets
 import app.motioncare.data.Store
@@ -41,7 +40,6 @@ class MainActivity : ComponentActivity() {
         RestAssets.ensureLoaded(this)
         val dm = resources.displayMetrics
         DiagLog.w("화면 생성 · 표시 ${dm.widthPixels}x${dm.heightPixels} density=${dm.density}")
-        logOpenCall(intent)
         refreshMissing()
         setContent {
             AppRoot(
@@ -55,13 +53,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        logOpenCall(intent)
     }
 
-    /** The voice call "open the app" arrives as this activity's action; it is logged like the other voice calls. */
-    private fun logOpenCall(intent: Intent?) {
-        if (GleoCall.fromAction(intent?.action) == GleoCall.OPEN_APP) DiagLog.w("Gleo 호출: ${GleoCall.OPEN_APP.action}")
-    }
 
     override fun onResume() {
         super.onResume()

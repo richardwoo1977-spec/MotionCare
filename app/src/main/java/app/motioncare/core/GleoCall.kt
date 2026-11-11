@@ -1,4 +1,4 @@
-// ver 1.3.0 | 2026-11-11 18:20
+// ver 1.4.0 | 2026-11-11 22:25
 package app.motioncare.core
 
 /**
@@ -14,8 +14,8 @@ enum class GleoCall(val action: String, val needsScreen: Boolean) {
     /** "괜찮아졌어요": same as pressing the button while relieving. No screen is needed. */
     RECOVERED("MOTION_SICKNESS_RECOVERED", false),
 
-    /** Open the app. */
-    OPEN_APP("OPEN_MOTIONCARE", true);
+    /** "쉬어 갈 곳": put a rest area on the navigation route, swap ours for another, or take one off. No screen. */
+    REST_STOP("REST_STOP_WAYPOINT", false);
 
     companion object {
         const val PACKAGE_PREFIX = "app.motioncare."
@@ -62,5 +62,27 @@ object GleoSeat {
         if (text.isNullOrBlank()) return emptySet()
         val m = SEAT_FIELD.find(text) ?: return emptySet()
         return fromValue(m.groupValues[1])
+    }
+}
+
+/** The parameters of the rest-area call ([GleoCall.REST_STOP]) as Gleo AI passes them, e.g. {"action":"ADD","place":"평택"}. */
+object GleoRest {
+    private val ACTION_FIELD = Regex("""action\\?"\s*:\s*\\?"([A-Za-z_]+)""")
+    private val PLACE_FIELD = Regex("""place\\?"\s*:\s*\\?"((?:[^"\\]|\\u[0-9a-fA-F]{4})*)""")
+    private val ESCAPED = Regex("""\\u([0-9a-fA-F]{4})""")
+
+    /** The action in [text]; ADD when it is missing (the schema marks it required, Gleo AI may still leave it out). */
+    fun action(text: String?): RestAction? {
+        if (text.isNullOrBlank()) return null
+        val m = ACTION_FIELD.find(text) ?: return if (text.contains("place")) RestAction.ADD else null
+        return RestAction.entries.firstOrNull { it.name == m.groupValues[1].uppercase() }
+    }
+
+    /** The rest area name in [text] (escaped code points decoded), or null when absent or blank. */
+    fun place(text: String?): String? {
+        if (text.isNullOrBlank()) return null
+        val raw = PLACE_FIELD.find(text)?.groupValues?.get(1) ?: return null
+        val decoded = ESCAPED.replace(raw) { it.groupValues[1].toInt(16).toChar().toString() }
+        return decoded.trim().ifEmpty { null }
     }
 }

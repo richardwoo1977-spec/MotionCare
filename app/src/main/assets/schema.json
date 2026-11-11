@@ -1,8 +1,8 @@
 {
   "packageName": "app.motioncare",
-  "appDescription": "A passenger motion-sickness care app that adjusts the cabin air for the seat of the affected passenger and suggests a rest stop.",
+  "appDescription": "A passenger motion-sickness care app that adjusts the cabin air for the affected passengers and puts a rest area on the navigation route.",
   "invokeWord": "차멀미 케어",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "actionCalls": [
     {
       "type": "function",
@@ -14,7 +14,21 @@
           "properties": {
             "seat": {
               "type": "string",
-              "enum": ["FRONT_PASSENGER", "SECOND_ROW_DRIVER_SIDE", "SECOND_ROW_CENTER", "SECOND_ROW_PASSENGER_SIDE", "THIRD_ROW_DRIVER_SIDE", "THIRD_ROW_CENTER", "THIRD_ROW_PASSENGER_SIDE", "SECOND_ROW_ALL", "THIRD_ROW_ALL", "ALL_REAR_SEATS", "PASSENGER_SIDE_FRONT_AND_REAR", "DRIVER_SIDE_REAR", "ALL_PASSENGER_SEATS"],
+              "enum": [
+                "FRONT_PASSENGER",
+                "SECOND_ROW_DRIVER_SIDE",
+                "SECOND_ROW_CENTER",
+                "SECOND_ROW_PASSENGER_SIDE",
+                "THIRD_ROW_DRIVER_SIDE",
+                "THIRD_ROW_CENTER",
+                "THIRD_ROW_PASSENGER_SIDE",
+                "SECOND_ROW_ALL",
+                "THIRD_ROW_ALL",
+                "ALL_REAR_SEATS",
+                "PASSENGER_SIDE_FRONT_AND_REAR",
+                "DRIVER_SIDE_REAR",
+                "ALL_PASSENGER_SEATS"
+              ],
               "description": "Where the affected passengers sit, as one seat or one group of seats. FRONT_PASSENGER is next to the driver. The SECOND_ROW and THIRD_ROW values name the row counted from the front and the side as seen from the driver seat. SECOND_ROW_ALL and THIRD_ROW_ALL are a whole row, ALL_REAR_SEATS is every seat behind the front row, PASSENGER_SIDE_FRONT_AND_REAR is the front passenger seat and the seats behind it, DRIVER_SIDE_REAR is the seats behind the driver, and ALL_PASSENGER_SEATS is every seat but the driver seat. Leave it out when the user does not say."
             }
           },
@@ -39,14 +53,30 @@
     {
       "type": "function",
       "function": {
-        "name": "OPEN_MOTIONCARE",
-        "description": "Only show the app screen, without starting any care. Use this only when the user asks to open, show or display the app screen.",
+        "name": "REST_STOP_WAYPOINT",
+        "description": "Change the rest area on the navigation route: add a rest area ahead as a waypoint, put another rest area in place of the one this app added, or take a rest area off the route. Pass the rest area name only when the user says it.",
         "parameters": {
           "type": "object",
-          "properties": {},
-          "required": []
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "ADD",
+                "REPLACE",
+                "REMOVE"
+              ],
+              "description": "ADD puts a rest area on the route in addition to the waypoints already there, REPLACE puts it in place of the rest area this app added, REMOVE takes a rest area off the route."
+            },
+            "place": {
+              "type": "string",
+              "description": "The name of the rest area as the user said it. Leave it out when the user does not say."
+            }
+          },
+          "required": [
+            "action"
+          ]
         },
-        "component": "activity"
+        "component": "service"
       }
     }
   ]

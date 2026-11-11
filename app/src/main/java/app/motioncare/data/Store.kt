@@ -1,4 +1,4 @@
-// ver 1.2.0 | 2026-11-11 18:30
+// ver 1.3.0 | 2026-11-11 22:10
 package app.motioncare.data
 
 import android.content.Context
@@ -35,7 +35,13 @@ object Store {
             val arr = JSONArray(raw)
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                HistoryEvent(o.getLong("t"), o.getInt("m"), o.getString("s"), o.optString("d", ""))
+                HistoryEvent(
+                    o.getLong("t"), o.getInt("m"), o.getString("s"), o.optString("d", ""),
+                    origin = o.optString("o", ""),
+                    originLat = if (o.has("oa")) o.getDouble("oa") else null,
+                    originLon = if (o.has("oo")) o.getDouble("oo") else null,
+                    place = o.optString("p", "")
+                )
             }
         } catch (e: Exception) {
             emptyList()
@@ -46,7 +52,11 @@ object Store {
         val prefs = sp ?: return
         val arr = JSONArray()
         list.forEach {
-            arr.put(JSONObject().put("t", it.epochMs).put("m", it.elapsedMin).put("s", it.seatKey).put("d", it.destination))
+            val j = JSONObject().put("t", it.epochMs).put("m", it.elapsedMin).put("s", it.seatKey).put("d", it.destination)
+                .put("o", it.origin).put("p", it.place)
+            it.originLat?.let { v -> j.put("oa", v) }
+            it.originLon?.let { v -> j.put("oo", v) }
+            arr.put(j)
         }
         prefs.edit().putString("history", arr.toString()).apply()
     }

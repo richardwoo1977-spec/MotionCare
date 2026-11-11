@@ -1,4 +1,4 @@
-// ver 1.2.0 | 2026-11-11 18:30
+// ver 1.3.0 | 2026-11-11 22:10
 package app.motioncare.core
 
 enum class Gear { PARK, REVERSE, NEUTRAL, DRIVE, UNKNOWN }
@@ -67,7 +67,13 @@ data class HistoryEvent(
     val elapsedMin: Int,
     /** the seats, as [SeatKeys.join] writes them; empty = no seat known (whole cabin) */
     val seatKey: String,
-    val destination: String
+    val destination: String,
+    /** where the trip started (short address from the navigation) and its position; empty / null when not known */
+    val origin: String = "",
+    val originLat: Double? = null,
+    val originLon: Double? = null,
+    /** where it happened (short address from the navigation); empty when not known */
+    val place: String = ""
 )
 
 /** Several seats in one text field (history), and the words for them. */

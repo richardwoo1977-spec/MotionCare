@@ -1,4 +1,4 @@
-// ver 1.3.0 | 2026-11-11 18:40
+// ver 1.4.0 | 2026-11-11 22:30
 package app.motioncare.core
 
 import java.io.File
@@ -18,14 +18,14 @@ class GleoCallTest {
     fun each_call_is_found_by_its_action_name() {
         assertEquals(GleoCall.RELIEF, GleoCall.fromAction("MOTION_SICKNESS_RELIEF"))
         assertEquals(GleoCall.RECOVERED, GleoCall.fromAction("MOTION_SICKNESS_RECOVERED"))
-        assertEquals(GleoCall.OPEN_APP, GleoCall.fromAction("OPEN_MOTIONCARE"))
+        assertEquals(GleoCall.REST_STOP, GleoCall.fromAction("REST_STOP_WAYPOINT"))
     }
 
     @Test
     fun each_call_is_also_found_with_the_package_name_in_front() {
         assertEquals(GleoCall.RELIEF, GleoCall.fromAction("app.motioncare.MOTION_SICKNESS_RELIEF"))
         assertEquals(GleoCall.RECOVERED, GleoCall.fromAction("app.motioncare.MOTION_SICKNESS_RECOVERED"))
-        assertEquals(GleoCall.OPEN_APP, GleoCall.fromAction("app.motioncare.OPEN_MOTIONCARE"))
+        assertEquals(GleoCall.REST_STOP, GleoCall.fromAction("app.motioncare.REST_STOP_WAYPOINT"))
     }
 
     @Test
@@ -54,10 +54,43 @@ class GleoCallTest {
     }
 
     @Test
-    fun only_the_open_call_needs_a_screen() {
-        assertFalse(GleoCall.RELIEF.needsScreen)
-        assertFalse(GleoCall.RECOVERED.needsScreen)
-        assertTrue(GleoCall.OPEN_APP.needsScreen)
+    fun no_call_needs_a_screen() {
+        GleoCall.values().forEach { assertFalse(it.needsScreen) }
+    }
+
+    // ---- the rest-area call ----
+
+    @Test
+    fun rest_action_and_place_are_read_from_plain_and_escaped_text() {
+        assertEquals(RestAction.ADD, GleoRest.action("{\"action\":\"ADD\",\"place\":\"평택\"}"))
+        assertEquals("평택", GleoRest.place("{\"action\":\"ADD\",\"place\":\"평택\"}"))
+        assertEquals(RestAction.REMOVE, GleoRest.action("{ \"action\" : \"remove\" }"))
+        assertEquals(RestAction.REPLACE, GleoRest.action("{\\\"action\\\":\\\"REPLACE\\\",\\\"place\\\":\\\"안성\\\"}"))
+        assertEquals("안성", GleoRest.place("{\\\"action\\\":\\\"REPLACE\\\",\\\"place\\\":\\\"안성\\\"}"))
+    }
+
+    @Test
+    fun an_escaped_korean_place_is_decoded() {
+        assertEquals("평택", GleoRest.place("{\"place\":\"\\uD3C9\\uD0DD\"}"))
+    }
+
+    @Test
+    fun a_missing_or_blank_place_gives_nothing_and_a_missing_action_with_a_place_is_add() {
+        assertNull(GleoRest.place("{\"action\":\"REMOVE\"}"))
+        assertNull(GleoRest.place("{\"place\":\"  \"}"))
+        assertNull(GleoRest.place(null))
+        assertEquals(RestAction.ADD, GleoRest.action("{\"place\":\"평택\"}"))
+        assertNull(GleoRest.action("{}"))
+        assertNull(GleoRest.action("{\"action\":\"MOVE\"}"))
+    }
+
+    @Test
+    fun schema_rest_actions_are_exactly_the_ones_in_the_code() {
+        val at = schema().indexOf("\"name\": \"REST_STOP_WAYPOINT\"")
+        assertTrue(at >= 0)
+        val enumText = Regex("\"enum\"\\s*:\\s*\\[([^\\]]*)\\]").find(schema().substring(at))!!.groupValues[1]
+        val inFile = Regex("\"([A-Z_]+)\"").findAll(enumText).map { it.groupValues[1] }.toSet()
+        assertEquals(RestAction.entries.map { it.name }.toSet(), inFile)
     }
 
     // ---- the schema file the Gleo AI app reads must match the code ----

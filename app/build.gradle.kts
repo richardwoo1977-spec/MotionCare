@@ -1,4 +1,4 @@
-// ver 1.4.1 | 2026-11-11 20:35
+// ver 1.5.0 | 2026-11-11 22:55
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -16,8 +16,8 @@ android {
         applicationId = "app.motioncare"
         minSdk = 29
         targetSdk = 35
-        versionCode = 7
-        versionName = "2.0.3"
+        versionCode = 8
+        versionName = "2.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

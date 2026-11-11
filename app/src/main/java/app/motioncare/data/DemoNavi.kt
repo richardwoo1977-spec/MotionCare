@@ -1,4 +1,4 @@
-// ver 1.2.0 | 2026-11-11 17:30
+// ver 1.3.0 | 2026-11-11 22:50
 package app.motioncare.data
 
 import app.motioncare.core.HistoryEvent
@@ -7,6 +7,7 @@ import app.motioncare.core.RestArea
 import app.motioncare.core.RestStop
 
 /**
+ * The rest-area list and a demo position (the navigation's own position is used for records when it reports one).
  * Stand-in for the navigation link. The rest areas are the real list of the Korea Expressway
  * Corporation file bundled with the app (see [setCatalog]); the car position is a made-up demo
  * position because the Pleos NaviHelper position / route is not connected yet, and the distances are
@@ -56,10 +57,10 @@ object DemoNavi {
     fun sampleHistory(now: Long): List<HistoryEvent> {
         val day = 24L * 60 * 60 * 1000
         return listOf(
-            HistoryEvent(now - 21 * day, 42, "ROW_2_LEFT", "부산"),
-            HistoryEvent(now - 14 * day, 38, "ROW_2_LEFT", "부산"),
-            HistoryEvent(now - 9 * day, 25, "ROW_2_RIGHT", "강릉"),
-            HistoryEvent(now - 3 * day, 40, "ROW_2_LEFT", "부산")
+            HistoryEvent(now - 21 * day, 42, "ROW_2_LEFT", "부산", "성남시 수정구", 37.44, 127.13, "안성시 원곡면"),
+            HistoryEvent(now - 14 * day, 38, "ROW_2_LEFT", "부산", "성남시 수정구", 37.44, 127.13, "안성시 공도읍"),
+            HistoryEvent(now - 9 * day, 25, "ROW_2_RIGHT", "강릉", "성남시 수정구", 37.44, 127.13, "여주시 가남읍"),
+            HistoryEvent(now - 3 * day, 40, "ROW_2_LEFT", "부산", "성남시 수정구", 37.44, 127.13, "안성시 원곡면")
         ).sortedByDescending { it.epochMs }
     }
 }

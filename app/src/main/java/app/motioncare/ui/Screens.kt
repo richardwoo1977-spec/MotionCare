@@ -1,4 +1,4 @@
-// ver 1.7.0 | 2026-11-11 20:35
+// ver 1.8.0 | 2026-11-11 22:45
 package app.motioncare.ui
 
 import androidx.compose.foundation.background
@@ -27,6 +27,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
+import android.content.pm.ApplicationInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import app.motioncare.core.CareMode
@@ -66,109 +69,6 @@ private fun facilities(toilet: Boolean, nursing: Boolean, kids: Boolean): String
 }
 
 @Composable
-fun RestScreen(live: LiveState) {
-    Row(
-        Modifier.fillMaxSize().padding(u(40)),
-        horizontalArrangement = Arrangement.spacedBy(u(30))
-    ) {
-        Panel(Modifier.width(u(560)).fillMaxHeight()) {
-            Txt("목적지", 40, weight = FontWeight.Bold)
-            Spacer(Modifier.height(u(16)))
-            DemoNavi.destinations.forEach { d ->
-                val on = d == live.destination
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(u(100))
-                        .background(if (on) Palette.Primary else Palette.Seg, RoundedCornerShape(u(24)))
-                        .clickable { CareService.run { it.setDestination(d) } },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Txt(d, 38, if (on) Palette.OnPrimary else Palette.Ink, FontWeight.Bold)
-                }
-                Spacer(Modifier.height(u(14)))
-            }
-            Spacer(Modifier.height(u(10)))
-            val after = live.restAfterMin
-            Txt(
-                if (after != null) "기록을 보니\n출발 ${after}분 뒤에 미리 알려드려요"
-                else "이 목적지는 아직\n멀미 기록이 없어요",
-                32,
-                Palette.Sub
-            )
-            Spacer(Modifier.weight(1f))
-            Pill("위치는 시연용 가상", Palette.WarnSoft, Palette.Warn)
-            Spacer(Modifier.height(u(12)))
-            Txt(
-                if (DemoNavi.usingFallback) "휴게소 파일을 읽지 못해\n가상 목록을 쓰고 있어요"
-                else "목록: 한국도로공사 파일 ${DemoNavi.catalogSize}곳\n(기준일 ${DemoNavi.dataAsOf}) · 거리는 직선 기준",
-                30, Palette.Muted
-            )
-        }
-        Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(u(30))) {
-            val s = live.suggestion
-            if (s != null) {
-                val added = live.waypoints.any { it.id == s.id }
-                Panel(Modifier.fillMaxWidth(), background = Palette.PrimarySoft) {
-                    Txt("지금 쉬어 가면 좋아요", 36, Palette.Primary, FontWeight.Bold)
-                    Spacer(Modifier.height(u(10)))
-                    Txt(s.name, 48, weight = FontWeight.Bold)
-                    Txt("${RestDisplay.kmText(s.distanceKm)} · 약 ${s.etaMin}분\n${facilities(s.toilet, s.nursing, s.kids)}", 32, Palette.Sub)
-                    Spacer(Modifier.height(u(10)))
-                    Txt(live.suggestionWhy, 32, Palette.Ink)
-                    Spacer(Modifier.height(u(20)))
-                    BigButton(
-                        text = if (added) "경유지에 추가됨" else "경유지로 추가",
-                        heightPx = 100,
-                        bg = Palette.Primary,
-                        fg = Palette.OnPrimary,
-                        enabled = !added,
-                        size = 38,
-                        onClick = { CareService.addWaypoint(s.id) }
-                    )
-                }
-            } else {
-                Panel(Modifier.fillMaxWidth()) {
-                    Txt("추천할 휴게소 없음", 36, weight = FontWeight.Bold)
-                    Spacer(Modifier.height(u(8)))
-                    Txt("멀미 나요를 누르거나, 기록한 시간이 되면\n가까운 휴게소를 먼저 알려드려요", 32, Palette.Sub)
-                }
-            }
-            Panel(Modifier.fillMaxWidth().weight(1f)) {
-                Txt("앞쪽 휴게소", 36, weight = FontWeight.Bold)
-                Spacer(Modifier.height(u(10)))
-                Column(Modifier.verticalScroll(rememberScrollState())) {
-                    DemoNavi.stops.forEach { st ->
-                        val added = live.waypoints.any { it.id == st.id }
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical = u(12)),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Txt(st.name, 36, weight = FontWeight.Bold)
-                                Txt("${RestDisplay.kmText(st.distanceKm)} · ${st.etaMin}분\n${facilities(st.toilet, st.nursing, st.kids)}", 30, Palette.Sub)
-                            }
-                            BigButton(
-                                text = if (added) "추가됨" else "추가",
-                                heightPx = 88,
-                                widthPx = 180,
-                                bg = Palette.Seg,
-                                fg = Palette.Ink,
-                                enabled = !added,
-                                size = 32,
-                                onClick = { CareService.addWaypoint(st.id) }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ===================================================================== 기록
-
-@Composable
 fun HistoryScreen(live: LiveState) {
     val fmt = SimpleDateFormat("M/d HH:mm", Locale.KOREA)
     val events = live.history
@@ -191,18 +91,19 @@ fun HistoryScreen(live: LiveState) {
                     Txt("${SeatKeys.label(bySeat.key)} · ${bySeat.value}번", 36, weight = FontWeight.Bold)
                     Spacer(Modifier.height(u(16)))
                 }
-                Txt("목적지별 평균 시각", 30, Palette.Muted)
-                DemoNavi.destinations.forEach { d ->
-                    val mins = events.filter { it.destination == d && it.elapsedMin > 0 }.map { it.elapsedMin }
-                    if (mins.isNotEmpty()) {
-                        Txt("$d · 출발 ${mins.sum() / mins.size}분째 (${mins.size}번)", 34, weight = FontWeight.Bold)
+                Txt("경로별 평균 시각", 30, Palette.Muted)
+                events.groupBy { (if (it.origin.isBlank()) "" else it.origin + " → ") + it.destination }.entries
+                    .sortedByDescending { it.value.size }.take(3).forEach { (route, list) ->
+                        val mins = list.filter { it.elapsedMin > 0 }.map { it.elapsedMin }
+                        if (mins.isNotEmpty()) {
+                            Txt("$route · ${mins.sum() / mins.size}분째 (${mins.size}번)", 32, weight = FontWeight.Bold, maxLines = 1, ellipsis = true)
+                        }
                     }
-                }
                 Spacer(Modifier.height(u(16)))
                 val after = live.restAfterMin
                 Txt(
-                    if (after != null) "${live.destination}행은\n출발 ${after}분 뒤에 미리 쉬자고 알려요"
-                    else "${live.destination}행은 아직\n미리 알릴 기록이 없어요",
+                    if (after != null) "이번 경로(${live.destination}행)는\n출발 ${after}분 뒤에 미리 쉬자고 알려요"
+                    else "이번 경로(${live.destination}행)는 아직\n미리 알릴 기록이 없어요",
                     32,
                     Palette.Sub
                 )
@@ -236,15 +137,21 @@ fun HistoryScreen(live: LiveState) {
             } else {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     events.forEach { e ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical = u(14)),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(u(24))
-                        ) {
-                            Txt(fmt.format(Date(e.epochMs)), 32, Palette.Sub, modifier = Modifier.width(u(200)))
-                            Txt("출발 ${e.elapsedMin}분째", 34, weight = FontWeight.Bold, modifier = Modifier.width(u(240)))
-                            Txt(SeatKeys.label(e.seatKey), 32, maxLines = 1, modifier = Modifier.width(u(240)))
-                            Txt(e.destination, 32, Palette.Sub)
+                        Column(Modifier.fillMaxWidth().padding(vertical = u(12))) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(u(24))
+                            ) {
+                                Txt(fmt.format(Date(e.epochMs)), 30, Palette.Sub, modifier = Modifier.width(u(190)))
+                                Txt("출발 ${e.elapsedMin}분째", 32, weight = FontWeight.Bold, modifier = Modifier.width(u(220)))
+                                Txt(SeatKeys.label(e.seatKey), 30, maxLines = 1, ellipsis = true)
+                            }
+                            // the route: where the trip started, where it went, and where it happened
+                            Txt(
+                                (if (e.origin.isBlank()) "" else e.origin + " → ") + e.destination +
+                                    (if (e.place.isBlank()) "" else " · ${e.place} 부근"),
+                                26, Palette.Muted, maxLines = 1, ellipsis = true, modifier = Modifier.padding(start = u(214), top = u(4))
+                            )
                         }
                     }
                 }
@@ -310,21 +217,35 @@ fun CheckScreen(live: LiveState) {
             Panel(Modifier.fillMaxWidth()) {
                 Txt("음성 호출 기록", 36, weight = FontWeight.Bold)
                 Spacer(Modifier.height(u(8)))
-                val calls = log.filter { it.contains("Gleo 호출") }.take(3)
-                if (calls.isEmpty()) Txt("아직 없음", 28, Palette.Muted)
-                calls.forEach { Txt(it, 26, Palette.Sub, maxLines = 2) }
+                // what Gleo AI called and what the app read from it, one short line each
+                val calls = log.filter { it.contains("Gleo 휴게소") || it.contains("Gleo 호출") || it.contains("Gleo 응답") }.take(3)
+                if (calls.isEmpty()) Txt("아직 없음", 26, Palette.Muted)
+                calls.forEach { Txt(it.replace("Gleo 호출: ", "").replace("MOTION_SICKNESS_", "").replace("REST_STOP_WAYPOINT", "REST_STOP"), 22, Palette.Sub, maxLines = 1, ellipsis = true) }
             }
             Panel(Modifier.fillMaxWidth()) {
                 Txt("시연 도구", 36, weight = FontWeight.Bold)
                 Spacer(Modifier.height(u(6)))
-                Txt("출발 후 시간을 앞당겨\n미리 쉬기 알림을 확인합니다", 30, Palette.Sub)
-                Spacer(Modifier.height(u(16)))
+                Txt("내비에 목적지가 없을 때 쓸 시연 목적지와\n출발 후 시간 앞당기기", 28, Palette.Sub)
+                Spacer(Modifier.height(u(12)))
+                Row(horizontalArrangement = Arrangement.spacedBy(u(10))) {
+                    DemoNavi.destinations.forEach { d ->
+                        val on = d == live.destination && !live.destinationFromNavi
+                        BigButton(
+                            text = d, heightPx = 80, widthPx = 150,
+                            bg = if (on) Palette.Primary else Palette.Seg,
+                            fg = if (on) Palette.OnPrimary else Palette.Ink, size = 30,
+                            onClick = { CareService.run { it.setDestination(d) } }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(u(12)))
                 BigButton(
-                    text = "출발 후 +10분", heightPx = 100,
-                    bg = Palette.Seg, fg = Palette.Ink, size = 34,
+                    text = "출발 후 +10분", heightPx = 80,
+                    bg = Palette.Seg, fg = Palette.Ink, size = 32,
                     onClick = { CareService.run { it.demoAddMinutes(10) } }
                 )
             }
+            if (isDebuggable()) VoiceTestPanel()
             // this card keeps its place and takes the height that is left; only the list inside scrolls
             Panel(Modifier.fillMaxWidth().weight(1f)) {
                 Txt("최근 기록(로그)", 36, weight = FontWeight.Bold)
@@ -332,6 +253,54 @@ fun CheckScreen(live: LiveState) {
                 if (log.isEmpty()) Txt("아직 없음", 30, Palette.Muted)
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                     log.forEach { Txt(it, 24, Palette.Sub, maxLines = 2) }
+                }
+            }
+        }
+    }
+}
+
+// ===================================================================== 음성 시험 (debug build only)
+
+@Composable
+private fun isDebuggable(): Boolean =
+    (LocalContext.current.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
+/**
+ * Sends the same broadcasts Gleo AI sends (action + parameter text) to the app's own voice receiver, so everything
+ * after speech recognition can be tried without speaking. Only in a debuggable build.
+ */
+@Composable
+private fun VoiceTestPanel() {
+    val context = LocalContext.current
+    val stops = DemoNavi.stops.filter { it.toilet && it.distanceKm in Policy.REST_MIN_KM..Policy.REST_MAX_KM }.sortedBy { it.distanceKm }
+    val second = stops.getOrNull(1)?.name ?: "평택"
+    val third = stops.getOrNull(2)?.name ?: "고삼호수"
+    fun send(action: String, params: String) {
+        context.sendBroadcast(
+            Intent(action).setPackage(context.packageName).putExtra("parameters", params)
+        )
+    }
+    Panel(Modifier.fillMaxWidth(), pad = 20) {
+        Txt("음성 시험 (debug 빌드만)", 26, weight = FontWeight.Bold)
+        Spacer(Modifier.height(u(6)))
+        val rows = listOf(
+            listOf(
+                "멀미 2열" to { send("MOTION_SICKNESS_RELIEF", "{\"seat\":\"SECOND_ROW_ALL\"}") },
+                "멀미 ?" to { send("MOTION_SICKNESS_RELIEF", "{}") },
+                "멀미 3열" to { send("MOTION_SICKNESS_RELIEF", "{\"seat\":\"THIRD_ROW_PASSENGER_SIDE\"}") },
+                "괜찮아" to { send("MOTION_SICKNESS_RECOVERED", "{}") }
+            ),
+            listOf(
+                "넣기" to { send("REST_STOP_WAYPOINT", "{\"action\":\"ADD\"}") },
+                "${second}도" to { send("REST_STOP_WAYPOINT", "{\"action\":\"ADD\",\"place\":\"${second}휴게소\"}") },
+                "${third}로" to { send("REST_STOP_WAYPOINT", "{\"action\":\"REPLACE\",\"place\":\"$third\"}") },
+                "빼기" to { send("REST_STOP_WAYPOINT", "{\"action\":\"REMOVE\"}") }
+            )
+        )
+        rows.forEach { row ->
+            Row(Modifier.padding(bottom = u(8)), horizontalArrangement = Arrangement.spacedBy(u(8))) {
+                row.forEach { (label, go) ->
+                    BigButton(text = label, heightPx = 56, widthPx = 120, bg = Palette.Seg, fg = Palette.Ink, size = 22, onClick = go)
                 }
             }
         }

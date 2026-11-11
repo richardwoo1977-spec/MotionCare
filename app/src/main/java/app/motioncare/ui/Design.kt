@@ -9,7 +9,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 
 /** Shown on the 점검 screen. */
-const val VERSION_LABEL = "ver 2.0.3 | 2026-11-11 20:35"
+const val VERSION_LABEL = "ver 2.1.0 | 2026-11-11 22:55"
 
 /**
  * The screens are drawn on a 1706 x 1210 px canvas (Pleos Connect app area), like TripSign.

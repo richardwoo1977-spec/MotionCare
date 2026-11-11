@@ -1,4 +1,4 @@
-// ver 1.5.0 | 2026-11-11 19:05
+// ver 1.6.0 | 2026-11-11 22:10
 package app.motioncare.data
 
 import app.motioncare.core.CarLayout
@@ -38,7 +38,16 @@ data class LiveState(
     val restAfterMin: Int? = null,
     val suggestion: RestStop? = null,
     val suggestionWhy: String = "",
+    /** rest areas the app put on the route */
     val waypoints: List<RestStop> = emptyList(),
+    /** waypoint names on the navigation's route in order (it may hold the driver's own); null = not reported */
+    val naviWaypoints: List<String>? = null,
+    /** rest area id picked on the rest screen (not yet acted on) */
+    val pickedRest: String? = null,
+    /** the destination comes from the navigation (false = the demo destination chosen in the app) */
+    val destinationFromNavi: Boolean = false,
+    /** where this trip started, short words (from the navigation) */
+    val origin: String = "",
     val history: List<HistoryEvent> = emptyList(),
     val check: List<CheckRow> = emptyList(),
     val windowOpenHigher: Boolean = true

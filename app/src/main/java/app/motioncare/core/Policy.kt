@@ -1,4 +1,4 @@
-// ver 1.2.0 | 2026-11-06 16:39
+// ver 1.3.0 | 2026-11-11 22:10
 package app.motioncare.core
 
 /** Pure rules, no Android types, so they can be unit tested. */
@@ -28,9 +28,19 @@ object Policy {
      * the median of earlier sick moments for that destination, minus a 5 minute lead (never below 5).
      * Null when there is no earlier record for the destination.
      */
-    fun restAfterMin(history: List<HistoryEvent>, destination: String): Int? {
+    fun restAfterMin(history: List<HistoryEvent>, destination: String): Int? =
+        restAfterMin(history, destination, null, null)
+
+    /** Two trips start from "the same place" when their starting points are this close. */
+    const val SAME_ORIGIN_KM = 5.0
+
+    /**
+     * As above, for the same route: the same destination and, when both starting points are known, a start within
+     * [SAME_ORIGIN_KM]. Records without a known start (older ones) count for every start.
+     */
+    fun restAfterMin(history: List<HistoryEvent>, destination: String, originLat: Double?, originLon: Double?): Int? {
         if (destination.isBlank()) return null
-        val mins = history.filter { it.destination == destination && it.elapsedMin > 0 }
+        val mins = history.filter { it.destination == destination && it.elapsedMin > 0 && sameStart(it, originLat, originLon) }
             .map { it.elapsedMin }.sorted()
         if (mins.isEmpty()) return null
         val median = if (mins.size % 2 == 1) mins[mins.size / 2] else (mins[mins.size / 2 - 1] + mins[mins.size / 2]) / 2
@@ -49,5 +59,22 @@ object Policy {
         val usable = stops.filter { it.toilet && it.distanceKm in REST_MIN_KM..REST_MAX_KM }.sortedBy { it.distanceKm }
         val care = usable.firstOrNull { (it.nursing || it.kids) && it.distanceKm <= 20.0 }
         return care ?: usable.firstOrNull()
+    }
+
+    private fun sameStart(e: HistoryEvent, lat: Double?, lon: Double?): Boolean {
+        if (lat == null || lon == null || e.originLat == null || e.originLon == null) return true
+        return Geo.km(lat, lon, e.originLat, e.originLon) <= SAME_ORIGIN_KM
+    }
+}
+
+/** Great-circle distance. */
+object Geo {
+    fun km(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6371.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+        return 2 * r * Math.asin(Math.sqrt(a))
     }
 }
