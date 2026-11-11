@@ -1,4 +1,4 @@
-// ver 1.1.0 | 2026-11-05 20:53
+// ver 1.2.0 | 2026-11-11 18:30
 package app.motioncare.car
 
 import ai.pleos.playground.vehicle.Vehicle
@@ -321,10 +321,10 @@ class VehicleLink(
 
     private fun seatValueOf(seat: Seat?): SeatValue? = seat?.let { s -> SeatValue.entries.firstOrNull { it.name == s.key } }
 
-    /** The areas that cover [seat]; when the vehicle reports none that does (or no seat is given), all reported areas. */
-    private fun pickSeatAreas(all: Collection<SeatArea>, seat: Seat?): List<SeatArea> {
-        val v = seatValueOf(seat)
-        val covering = if (v == null) emptyList() else all.filter { a -> a.values.any { it == v } }
+    /** The areas that cover any of [seats]; when the vehicle reports none that does (or no seat is given), all reported areas. */
+    private fun pickSeatAreas(all: Collection<SeatArea>, seats: Set<Seat>): List<SeatArea> {
+        val vs = seats.mapNotNull { seatValueOf(it) }.toSet()
+        val covering = all.filter { a -> a.values.any { it in vs } }
         return if (covering.isNotEmpty()) covering else all.toList()
     }
 
@@ -345,7 +345,7 @@ class VehicleLink(
             return
         }
         if (d.powerOn) {
-            val areas = pickSeatAreas(powerAreas, d.target)
+            val areas = pickSeatAreas(powerAreas, d.targets)
             if (areas.isEmpty()) applyRest(d) else ensurePowerOn(areas.first()) { applyRest(d) }
         } else {
             restorePower()
@@ -356,49 +356,53 @@ class VehicleLink(
     private fun applyRest(d: Desired) {
         // recirculation
         if (d.recircOff) {
-            val areas = pickSeatAreas(recircAreas, d.target)
+            val areas = pickSeatAreas(recircAreas, d.targets)
             if (areas.isEmpty()) note("recirc", "내기순환 조절 미지원") else areas.forEach { ensureRecircOff(it) }
         } else restoreRecirc()
 
         // fan speed
         if (d.fan != FanWant.NONE) {
-            val areas = pickSeatAreas(fanBounds.keys, d.target)
+            val areas = pickSeatAreas(fanBounds.keys, d.targets)
             if (areas.isEmpty()) {
                 note("fan", "풍량 조절 미지원")
             } else if (d.fan == FanWant.PLUS_ONE && !d.powerOn) {
                 // prevention never switches the climate system on by itself; a blower that is off cannot be changed
-                val pa = pickSeatAreas(powerAreas, d.target).firstOrNull()
+                val pa = pickSeatAreas(powerAreas, d.targets).firstOrNull()
                 val h = hvac
                 if (pa == null || h == null) {
-                    areas.forEach { ensureFan(it, d.fan, d.target) }
+                    areas.forEach { ensureFan(it, d.fan, d.targets) }
                 } else {
                     h.getHvacPowerState(
                         pa,
                         onComplete = { on: Boolean? ->
                             main.post {
                                 if (on == false) note("fan", "공조가 꺼져 있어 풍량은 그대로예요")
-                                else areas.forEach { ensureFan(it, d.fan, d.target) }
+                                else areas.forEach { ensureFan(it, d.fan, d.targets) }
                             }
                         },
-                        onFailed = { e: Exception -> main.post { log("공조 전원 읽기 실패: $e"); areas.forEach { ensureFan(it, d.fan, d.target) } } }
+                        onFailed = { e: Exception -> main.post { log("공조 전원 읽기 실패: $e"); areas.forEach { ensureFan(it, d.fan, d.targets) } } }
                     )
                 }
             } else {
-                areas.forEach { ensureFan(it, d.fan, d.target) }
+                areas.forEach { ensureFan(it, d.fan, d.targets) }
             }
         } else restoreFan()
 
         // fan direction
         if (d.faceDirection) {
-            val areas = pickSeatAreas(directionAreas.filter { FanDirectionType.FACE in it.value }.keys, d.target)
+            val areas = pickSeatAreas(directionAreas.filter { FanDirectionType.FACE in it.value }.keys, d.targets)
             if (areas.isEmpty()) note("direction", "얼굴 방향 미지원") else areas.forEach { ensureFace(it) }
         } else restoreDirection()
 
-        // window
-        val wv = windowOf(d.target)
-        if (d.windowOpen && wv != null) {
-            val area = windowBounds.keys.firstOrNull { a -> a.values.any { it == wv } }
-            if (area == null) note("window", "창문 조절 미지원 (${wv.name})") else ensureWindowOpen(area)
+        // window: the one next to each seat looked after (none for the whole cabin or middle seats)
+        val wvs = d.targets.mapNotNull { windowOf(it) }.distinct()
+        if (d.windowOpen && wvs.isNotEmpty()) {
+            val missing = mutableListOf<String>()
+            for (wv in wvs) {
+                val area = windowBounds.keys.firstOrNull { a -> a.values.any { it == wv } }
+                if (area == null) missing += wv.name else ensureWindowOpen(area)
+            }
+            if (missing.isNotEmpty()) note("window", "창문 조절 미지원 (${missing.joinToString()})")
         } else restoreWindow()
     }
 
@@ -492,12 +496,12 @@ class VehicleLink(
         note("power", null)
     }
 
-    private fun ensureFan(area: SeatArea, want: FanWant, target: Seat?) {
+    private fun ensureFan(area: SeatArea, want: FanWant, targets: Set<Seat>) {
         val h = hvac ?: return
         val b = fanBounds[area] ?: return
-        val tv = seatValueOf(target)
-        val covers = tv != null && area.values.any { it == tv }
-        val zone = if (covers || target == null) "" else " · 좌석별 조절 불가, ${areaName(area)} 구역"
+        val tvs = targets.mapNotNull { seatValueOf(it) }.toSet()
+        val covers = area.values.any { it in tvs }
+        val zone = if (covers || targets.isEmpty()) "" else " · 좌석별 조절 불가, ${areaName(area)} 구역"
         h.getHvacFanSpeed(
             area,
             onComplete = { cur: Int? ->

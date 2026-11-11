@@ -1,4 +1,4 @@
-// ver 1.3.0 | 2026-11-06 17:05
+// ver 2.1.0 | 2026-11-11 19:10
 package app.motioncare.ui
 
 import androidx.compose.foundation.Canvas
@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,7 +28,9 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -38,67 +41,174 @@ import app.motioncare.core.RestStop
 import app.motioncare.data.DemoNavi
 import app.motioncare.data.LiveState
 import app.motioncare.service.CareService
-import kotlin.math.roundToInt
 
-// ===================================================================== 홈 (confirmed design, 1452 x 1130 design px)
+// ===================================================================== 홈 (19차 시안, 1452 x 1130 design px)
+//
+//   누가 힘들어하나요?  (spoken guidance takes this place while it is shown)
+//   ┌ 힘들어할 무렵 (2) ┐ ┌──────────────┐
+//   ├ 쉬어 갈 곳   (4) ┤ │ car, front up│
+//   └ 멀미 나요    (4) ┘ └──────────────┘
 
 private val NoteColor = Color(0x8FF2F6F7)           // rgba(242,246,247,.56)
 private val ActionCard = Color(0x294FD6BC)          // mint at 16 %
+private val QuietCard = Color(0x12FFFFFF)           // white at 7 %
 
-/**
- * "누가 힘들어하나요?": the car with the seats, and one row under it:
- * 힘들어할 무렵 | 쉬어 갈 곳 | 멀미 나요 (widths 1 : 1 : 1.5).
- */
+private const val TOP = 150f
+private const val COL_W = 620f
+private const val COL_H = 980f
+private const val GAP = 24f
+private const val CAR_X = 652f
+private const val CAR_W = 800f
+
 @Composable
 fun HomeScreen(live: LiveState, onOpenRest: () -> Unit) {
     Box(Modifier.fillMaxSize()) {
-        Row(Modifier.height(u(111)), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(u(28))) {
+        TitleRow(live)
+        Column(
+            Modifier.offset(u(0), u(TOP)).size(u(COL_W), u(COL_H)),
+            verticalArrangement = Arrangement.spacedBy(u(GAP))
+        ) {
+            val unit = (COL_H - 2 * GAP) / 10f
+            WhenCard(live, unit * 2)
+            RestCard(live, unit * 4, onOpenRest)
+            ReliefButton(live, unit * 4)
+        }
+        Box(Modifier.offset(u(CAR_X), u(TOP))) {
+            CarView(
+                marked = live.reliefSeats,
+                picked = live.pickedSeats,
+                whole = live.reliefWhole,
+                onTap = if (live.mode == CareMode.RELIEF) null else { seat -> CareService.run { it.tapSeat(seat.key) } },
+                occupancy = live.occupancy,
+                rows = live.rows,
+                boxW = CAR_W,
+                boxH = COL_H
+            )
+        }
+    }
+}
+
+/** The title, or the spoken guidance in its place while it is shown (the only guidance when TTS is not ready). */
+@Composable
+private fun TitleRow(live: LiveState) {
+    Row(Modifier.height(u(111)), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(u(28))) {
+        if (live.caption.isNotBlank()) {
+            Txt(
+                live.caption, 60, Palette.Primary, FontWeight.Medium, maxLines = 1, spacing = -0.03f,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+            )
+        } else {
             Txt(
                 "누가 힘들어하나요?", 60, Color.White, FontWeight.Medium,
                 modifier = Modifier.alignByBaseline(), maxLines = 1, spacing = -0.03f
             )
             Txt(
-                "힘들어하는 사람이 앉은 좌석을 눌러 주세요", 28, Palette.Sub, FontWeight.Normal,
+                "말로 알려 주세요. 예: 뒷자리 모두 멀미 나요", 28, Palette.Sub, FontWeight.Normal,
                 modifier = Modifier.alignByBaseline(), maxLines = 1
             )
-        }
-        Box(Modifier.offset(u(0), u(150))) {
-            CarView(
-                designated = live.designated + listOfNotNull(live.reliefSeat),
-                occupancy = live.occupancy,
-                rows = live.rows,
-                onToggle = { seat -> CareService.run { it.toggleDesignate(seat.key) } }
-            )
-        }
-        Row(
-            Modifier.offset(y = u(930)).width(u(1452)),
-            horizontalArrangement = Arrangement.spacedBy(u(16))
-        ) {
-            WhenCard(live)
-            RestCard(onOpenRest)
-            ReliefButton(live)
         }
     }
 }
 
-private const val CARD_W = (1452f - 32f) / 3.5f
-
-/** Label on top, value + note at the bottom. [content] is the bottom part. */
+/** "힘들어할 무렵": minutes after leaving at which a rest is offered, from the earlier records. */
 @Composable
-private fun Card(label: String, action: Boolean, description: String? = null, onClick: (() -> Unit)? = null, content: @Composable () -> Unit) {
-    var mod = Modifier
-        .width(u(CARD_W))
-        .height(u(200))
-        .background(if (action) ActionCard else Palette.Card, RoundedCornerShape(u(28)))
-    if (description != null) mod = mod.semantics { contentDescription = description }
-    if (onClick != null) mod = mod.clickable(onClick = onClick)
-    Box(mod) {
-        Column(Modifier.fillMaxSize().padding(u(24)), verticalArrangement = Arrangement.SpaceBetween) {
-            Txt(label, 28, Palette.Sub, FontWeight.Normal, maxLines = 1)
-            content()
+private fun WhenCard(live: LiveState, height: Float) {
+    Row(
+        Modifier.fillMaxWidth().height(u(height)).background(QuietCard, RoundedCornerShape(u(28))).padding(horizontal = u(28)),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Txt("힘들어할 무렵", 28, Palette.Sub, maxLines = 1)
+        val after = live.restAfterMin
+        Column(horizontalAlignment = Alignment.End) {
+            if (after != null) {
+                Txt("${after}분쯤", 48, Color.White, FontWeight.Medium, maxLines = 1, spacing = -0.02f)
+                Txt("지난번 기록이에요", 22, NoteColor, maxLines = 1)
+            } else {
+                Txt("아직 없어요", 40, Palette.Sub, FontWeight.Medium, maxLines = 1)
+                Txt("기록이 쌓이면 알려드려요", 22, NoteColor, maxLines = 1)
+            }
         }
-        if (action) Chevron(Modifier.align(Alignment.TopEnd).padding(top = u(20), end = u(22)))
     }
+}
+
+/**
+ * "쉬어 갈 곳": one touch puts the stop on the route as a waypoint (the navigation then comes to the front);
+ * "다른 곳" opens the list. Once added, the card says so and opens the list.
+ */
+@Composable
+private fun RestCard(live: LiveState, height: Float, onOpen: () -> Unit) {
+    val stop: RestStop? = live.suggestion ?: Policy.pickStop(DemoNavi.stops)
+    val added = stop != null && live.waypoints.any { it.id == stop.id }
+    if (stop == null) {
+        Box(
+            Modifier.fillMaxWidth().height(u(height)).background(QuietCard, RoundedCornerShape(u(28))).clickable(onClick = onOpen)
+                .semantics { contentDescription = "쉬어 갈 곳, 목록 열기" }
+                .padding(u(32))
+        ) {
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+                Txt("쉬어 갈 곳", 30, Palette.Sub, maxLines = 1)
+                Txt("정해지면 알려요", 56, Palette.Sub, FontWeight.Medium, maxLines = 1)
+                Txt("경로를 켜면 보여드려요", 28, NoteColor, maxLines = 1)
+            }
+        }
+        return
+    }
+    val headline = "${stop.name} ${RestDisplay.kmText(stop.distanceKm)}"
+    if (added) {
+        Box(
+            Modifier.fillMaxWidth().height(u(height)).background(ActionCard, RoundedCornerShape(u(28))).clickable(onClick = onOpen)
+                .semantics { contentDescription = "$headline, 경유지에 넣었어요. 목록 열기" }
+                .padding(u(32))
+        ) {
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+                Txt("경유지에 넣었어요", 30, Palette.Primary, FontWeight.Medium, maxLines = 1)
+                Txt(headline, headlineSize(headline, COL_W - 64f), Color.White, FontWeight.Medium, maxLines = 1, spacing = -0.02f)
+                Txt("내비가 안내해요 · 경유지 ${live.waypoints.size}/2", 28, Palette.Sub, maxLines = 1)
+            }
+        }
+        return
+    }
+    Row(Modifier.fillMaxWidth().height(u(height)), horizontalArrangement = Arrangement.spacedBy(u(12))) {
+        Box(
+            Modifier.weight(1f).fillMaxHeight().background(ActionCard, RoundedCornerShape(u(28)))
+                .clickable { CareService.addWaypoint(stop.id) }
+                .semantics { contentDescription = "$headline 을 경유지로 넣기" }
+                .padding(u(32))
+        ) {
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+                Txt("쉬어 갈 곳", 30, Palette.Sub, maxLines = 1)
+                Txt(headline, headlineSize(headline, COL_W - 104f - 12f - 64f), Color.White, FontWeight.Medium, maxLines = 1, spacing = -0.02f)
+                Txt("누르면 경유지로 넣어요", 28, Palette.Primary, FontWeight.Medium, maxLines = 1)
+            }
+        }
+        Column(
+            Modifier.width(u(104)).fillMaxHeight().background(QuietCard, RoundedCornerShape(u(28)))
+                .clickable(onClick = onOpen)
+                .semantics { contentDescription = "다른 휴게소 보기" },
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(u(8), Alignment.CenterVertically)
+        ) {
+            Chevron(Modifier)
+            Txt("다른 곳", 22, Palette.Sub, maxLines = 1)
+        }
+    }
+}
+
+/**
+ * The biggest size from 72 down that fits [text] on one line in [widthPx] design px.
+ * Widths per character at 1 px: Hangul 1.0, digits and Latin 0.6, space 0.3 (close to Asta Sans, a little generous).
+ */
+private fun headlineSize(text: String, widthPx: Float): Int {
+    val em = text.sumOf { c ->
+        when {
+            c == ' ' -> 0.3
+            c in '가'..'힣' -> 1.0
+            else -> 0.6
+        }
+    }
+    val fit = (widthPx / em * 0.98).toInt()
+    return fit.coerceIn(36, 72)
 }
 
 @Composable
@@ -112,65 +222,34 @@ private fun Chevron(modifier: Modifier) {
     }
 }
 
+/**
+ * "멀미 나요": on only when seats are picked (it never guesses the seats); also while driving.
+ * While relieving it becomes "괜찮아졌어요" (also when the relief was started by voice).
+ */
 @Composable
-private fun ValueText(value: String, note: String, dim: Boolean = false) {
-    Column {
-        Txt(value, 46, if (dim) Palette.Sub else Color.White, FontWeight.Medium, maxLines = 1, spacing = -0.02f)
-        Txt(note, 23, NoteColor, FontWeight.Normal, maxLines = 1, modifier = Modifier.padding(top = u(6)))
-    }
-}
-
-/** "힘들어할 무렵": minutes after leaving at which a rest is offered, from the earlier records. */
-@Composable
-private fun WhenCard(live: LiveState) {
-    Card("힘들어할 무렵", action = false) {
-        val after = live.restAfterMin
-        if (after != null) ValueText("${after}분쯤", "지난번 기록이에요")
-        else ValueText("아직 없어요", "기록이 쌓이면 알려드려요", dim = true)
-    }
-}
-
-/** "쉬어 갈 곳": the stop that would be offered now, name and distance on one line. */
-@Composable
-private fun RestCard(onOpen: () -> Unit) {
-    val stop: RestStop? = Policy.pickStop(DemoNavi.stops)
-    val desc = if (stop != null) "쉬어 갈 곳 ${stop.name} ${RestDisplay.kmText(stop.distanceKm)}, 목록 열기" else "쉬어 갈 곳, 목록 열기"
-    Card("쉬어 갈 곳", action = true, description = desc, onClick = onOpen) {
-        if (stop != null) {
-            val km = stop.distanceKm.roundToInt()
-            val size = RestDisplay.nameSizePx(stop.name, km)
-            Row(horizontalArrangement = Arrangement.spacedBy(u(11)), verticalAlignment = Alignment.Bottom) {
-                Txt(
-                    stop.name, size, Color.White, FontWeight.Medium,
-                    modifier = Modifier.weight(1f, fill = false), maxLines = 1, spacing = -0.02f, ellipsis = true
-                )
-                Txt(RestDisplay.kmText(stop.distanceKm), size, Color.White, FontWeight.Medium, maxLines = 1, spacing = -0.02f)
-            }
-        } else {
-            ValueText("정해지면 알려요", "경로를 켜면 보여드려요", dim = true)
-        }
-    }
-}
-
-/** "멀미 나요": always active, also while driving. While relieving it becomes "괜찮아졌어요". */
-@Composable
-private fun ReliefButton(live: LiveState) {
+private fun ReliefButton(live: LiveState, height: Float) {
     val relieving = live.mode == CareMode.RELIEF
+    val enabled = relieving || live.canRelieve
     val title = if (relieving) "괜찮아졌어요" else "멀미 나요"
-    val sub = if (relieving) "원래 설정으로 되돌려요" else "바람을 최대로 하고 쉴 곳을 찾아요"
-    Box(
-        Modifier
-            .width(u((1452f - 32f) * 1.5f / 3.5f))
-            .height(u(200))
-            .background(Palette.Primary, RoundedCornerShape(u(36)))
-            .clickable {
-                if (relieving) CareService.run { it.reliefEnd() } else CareService.run { it.reliefPressed() }
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(horizontal = u(44))) {
-            Txt(title, 88, Palette.OnPrimary, FontWeight.Medium, align = TextAlign.Center, maxLines = 1, spacing = -0.025f)
-            Txt(sub, 28, Palette.OnPrimary, FontWeight.Medium, align = TextAlign.Center, maxLines = 1, modifier = Modifier.padding(top = u(4)))
+    val sub = when {
+        relieving -> "원래 설정으로 되돌려요"
+        enabled -> "바람을 최대로 하고 쉴 곳을 찾아요"
+        else -> "자리를 말하거나 눌러서 골라 주세요"
+    }
+    val ink = if (enabled) Palette.OnPrimary else Palette.Gray
+    var mod = Modifier
+        .fillMaxWidth()
+        .height(u(height))
+        .background(if (enabled) Palette.Primary else Palette.Seg, RoundedCornerShape(u(36)))
+    mod = if (enabled) {
+        mod.clickable { if (relieving) CareService.run { it.reliefEnd() } else CareService.run { it.reliefPressed() } }
+    } else {
+        mod.semantics { contentDescription = "멀미 나요, 자리를 먼저 골라 주세요" }
+    }
+    Box(mod, contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(horizontal = u(32))) {
+            Txt(title, if (relieving) 88 else 96, ink, FontWeight.Medium, align = TextAlign.Center, maxLines = 1, spacing = -0.025f)
+            Txt(sub, 28, ink, FontWeight.Medium, align = TextAlign.Center, maxLines = 1, modifier = Modifier.padding(top = u(8)))
         }
     }
 }

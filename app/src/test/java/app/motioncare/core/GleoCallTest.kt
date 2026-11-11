@@ -1,4 +1,4 @@
-// ver 1.2.0 | 2026-11-06 16:40
+// ver 1.3.0 | 2026-11-11 18:40
 package app.motioncare.core
 
 import java.io.File
@@ -132,44 +132,55 @@ class GleoCallTest {
     // ---- the seat word of the relief call ----
 
     @Test
-    fun every_seat_value_names_its_seat() {
-        assertEquals(Seat.ROW_1_RIGHT, GleoSeat.fromValue("FRONT_PASSENGER"))
-        assertEquals(Seat.ROW_2_LEFT, GleoSeat.fromValue("SECOND_ROW_DRIVER_SIDE"))
-        assertEquals(Seat.ROW_2_CENTER, GleoSeat.fromValue("SECOND_ROW_CENTER"))
-        assertEquals(Seat.ROW_2_RIGHT, GleoSeat.fromValue("SECOND_ROW_PASSENGER_SIDE"))
-        assertEquals(Seat.ROW_3_LEFT, GleoSeat.fromValue("THIRD_ROW_DRIVER_SIDE"))
-        assertEquals(Seat.ROW_3_CENTER, GleoSeat.fromValue("THIRD_ROW_CENTER"))
-        assertEquals(Seat.ROW_3_RIGHT, GleoSeat.fromValue("THIRD_ROW_PASSENGER_SIDE"))
+    fun every_single_seat_value_names_its_seat() {
+        assertEquals(setOf(Seat.ROW_1_RIGHT), GleoSeat.fromValue("FRONT_PASSENGER"))
+        assertEquals(setOf(Seat.ROW_2_LEFT), GleoSeat.fromValue("SECOND_ROW_DRIVER_SIDE"))
+        assertEquals(setOf(Seat.ROW_2_CENTER), GleoSeat.fromValue("SECOND_ROW_CENTER"))
+        assertEquals(setOf(Seat.ROW_2_RIGHT), GleoSeat.fromValue("SECOND_ROW_PASSENGER_SIDE"))
+        assertEquals(setOf(Seat.ROW_3_LEFT), GleoSeat.fromValue("THIRD_ROW_DRIVER_SIDE"))
+        assertEquals(setOf(Seat.ROW_3_CENTER), GleoSeat.fromValue("THIRD_ROW_CENTER"))
+        assertEquals(setOf(Seat.ROW_3_RIGHT), GleoSeat.fromValue("THIRD_ROW_PASSENGER_SIDE"))
     }
 
     @Test
-    fun every_seat_but_the_drivers_can_be_named() {
-        val named = GleoSeat.values.values.toSet()
+    fun every_group_value_names_its_seats() {
+        assertEquals(setOf(Seat.ROW_2_LEFT, Seat.ROW_2_CENTER, Seat.ROW_2_RIGHT), GleoSeat.fromValue("SECOND_ROW_ALL"))
+        assertEquals(setOf(Seat.ROW_3_LEFT, Seat.ROW_3_CENTER, Seat.ROW_3_RIGHT), GleoSeat.fromValue("THIRD_ROW_ALL"))
+        assertEquals(Seat.entries.filter { it.row >= 2 }.toSet(), GleoSeat.fromValue("ALL_REAR_SEATS"))
+        assertEquals(setOf(Seat.ROW_1_RIGHT, Seat.ROW_2_RIGHT, Seat.ROW_3_RIGHT), GleoSeat.fromValue("PASSENGER_SIDE_FRONT_AND_REAR"))
+        assertEquals(setOf(Seat.ROW_2_LEFT, Seat.ROW_3_LEFT), GleoSeat.fromValue("DRIVER_SIDE_REAR"))
+        assertEquals(Seat.entries.filter { it != Seat.ROW_1_LEFT }.toSet(), GleoSeat.fromValue("ALL_PASSENGER_SEATS"))
+    }
+
+    @Test
+    fun every_seat_but_the_drivers_can_be_named_and_no_value_names_the_driver() {
+        val named = GleoSeat.values.values.flatten().toSet()
         Seat.entries.filter { it != Seat.ROW_1_LEFT }.forEach { assertTrue(it.key, it in named) }
         assertFalse(Seat.ROW_1_LEFT in named)
     }
 
     @Test
     fun an_unknown_or_missing_seat_value_is_ignored() {
-        assertNull(GleoSeat.fromValue("DRIVER"))
-        assertNull(GleoSeat.fromValue(""))
-        assertNull(GleoSeat.fromValue(null))
+        assertTrue(GleoSeat.fromValue("DRIVER").isEmpty())
+        assertTrue(GleoSeat.fromValue("").isEmpty())
+        assertTrue(GleoSeat.fromValue(null).isEmpty())
     }
 
     @Test
     fun the_seat_is_read_from_plain_and_escaped_parameter_text() {
-        assertEquals(Seat.ROW_3_CENTER, GleoSeat.fromParamText("{\"seat\":\"THIRD_ROW_CENTER\"}"))
-        assertEquals(Seat.ROW_3_CENTER, GleoSeat.fromParamText("{ \"seat\" : \"third_row_center\" }"))
-        assertEquals(Seat.ROW_1_RIGHT, GleoSeat.fromParamText("{\\\"seat\\\":\\\"FRONT_PASSENGER\\\"}"))
+        assertEquals(setOf(Seat.ROW_3_CENTER), GleoSeat.fromParamText("{\"seat\":\"THIRD_ROW_CENTER\"}"))
+        assertEquals(setOf(Seat.ROW_3_CENTER), GleoSeat.fromParamText("{ \"seat\" : \"third_row_center\" }"))
+        assertEquals(setOf(Seat.ROW_1_RIGHT), GleoSeat.fromParamText("{\\\"seat\\\":\\\"FRONT_PASSENGER\\\"}"))
+        assertEquals(setOf(Seat.ROW_2_LEFT, Seat.ROW_3_LEFT), GleoSeat.fromParamText("{\"seat\":\"DRIVER_SIDE_REAR\"}"))
     }
 
     @Test
     fun parameter_text_without_a_known_seat_gives_nothing() {
-        assertNull(GleoSeat.fromParamText("{}"))
-        assertNull(GleoSeat.fromParamText(""))
-        assertNull(GleoSeat.fromParamText(null))
-        assertNull(GleoSeat.fromParamText("{\"seat\":\"BACK\"}"))
-        assertNull(GleoSeat.fromParamText("{\"title\":\"seat\"}"))
+        assertTrue(GleoSeat.fromParamText("{}").isEmpty())
+        assertTrue(GleoSeat.fromParamText("").isEmpty())
+        assertTrue(GleoSeat.fromParamText(null).isEmpty())
+        assertTrue(GleoSeat.fromParamText("{\"seat\":\"BACK\"}").isEmpty())
+        assertTrue(GleoSeat.fromParamText("{\"title\":\"seat\"}").isEmpty())
     }
 
     @Test

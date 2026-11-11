@@ -2,20 +2,20 @@
   "packageName": "app.motioncare",
   "appDescription": "A passenger motion-sickness care app that adjusts the cabin air for the seat of the affected passenger and suggests a rest stop.",
   "invokeWord": "차멀미 케어",
-  "version": "0.2.0",
+  "version": "0.3.1",
   "actionCalls": [
     {
       "type": "function",
       "function": {
         "name": "MOTION_SICKNESS_RELIEF",
-        "description": "Start relief for a passenger who feels motion sick by raising the air flow to the maximum and suggesting a rest stop. Pass the seat only when the user names where the affected passenger sits.",
+        "description": "Start motion-sickness care: relief for a passenger who feels motion sick, raising the air flow to the maximum and suggesting a rest stop. Use this also when the user asks to start or run the app without saying more. Pass the seat only when the user names where the affected passenger sits; the app asks for it otherwise.",
         "parameters": {
           "type": "object",
           "properties": {
             "seat": {
               "type": "string",
-              "enum": ["FRONT_PASSENGER", "SECOND_ROW_DRIVER_SIDE", "SECOND_ROW_CENTER", "SECOND_ROW_PASSENGER_SIDE", "THIRD_ROW_DRIVER_SIDE", "THIRD_ROW_CENTER", "THIRD_ROW_PASSENGER_SIDE"],
-              "description": "The seat of the affected passenger: FRONT_PASSENGER is next to the driver, and the SECOND_ROW and THIRD_ROW values name the row counted from the front and the side as seen from the driver seat. Leave it out when the user does not say."
+              "enum": ["FRONT_PASSENGER", "SECOND_ROW_DRIVER_SIDE", "SECOND_ROW_CENTER", "SECOND_ROW_PASSENGER_SIDE", "THIRD_ROW_DRIVER_SIDE", "THIRD_ROW_CENTER", "THIRD_ROW_PASSENGER_SIDE", "SECOND_ROW_ALL", "THIRD_ROW_ALL", "ALL_REAR_SEATS", "PASSENGER_SIDE_FRONT_AND_REAR", "DRIVER_SIDE_REAR", "ALL_PASSENGER_SEATS"],
+              "description": "Where the affected passengers sit, as one seat or one group of seats. FRONT_PASSENGER is next to the driver. The SECOND_ROW and THIRD_ROW values name the row counted from the front and the side as seen from the driver seat. SECOND_ROW_ALL and THIRD_ROW_ALL are a whole row, ALL_REAR_SEATS is every seat behind the front row, PASSENGER_SIDE_FRONT_AND_REAR is the front passenger seat and the seats behind it, DRIVER_SIDE_REAR is the seats behind the driver, and ALL_PASSENGER_SEATS is every seat but the driver seat. Leave it out when the user does not say."
             }
           },
           "required": []
@@ -40,7 +40,7 @@
       "type": "function",
       "function": {
         "name": "OPEN_MOTIONCARE",
-        "description": "Open the motion-sickness care app on the screen.",
+        "description": "Only show the app screen, without starting any care. Use this only when the user asks to open, show or display the app screen.",
         "parameters": {
           "type": "object",
           "properties": {},

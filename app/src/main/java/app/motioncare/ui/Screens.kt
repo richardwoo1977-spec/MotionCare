@@ -1,4 +1,4 @@
-// ver 1.3.0 | 2026-11-06 17:05
+// ver 1.7.0 | 2026-11-11 20:35
 package app.motioncare.ui
 
 import androidx.compose.foundation.background
@@ -34,7 +34,9 @@ import app.motioncare.core.CheckRow
 import app.motioncare.core.Gear
 import app.motioncare.core.Level
 import app.motioncare.core.Policy
+import app.motioncare.core.RestDisplay
 import app.motioncare.core.Seat
+import app.motioncare.core.SeatKeys
 import app.motioncare.data.DemoNavi
 import app.motioncare.data.DiagLog
 import app.motioncare.data.LiveState
@@ -111,7 +113,7 @@ fun RestScreen(live: LiveState) {
                     Txt("지금 쉬어 가면 좋아요", 36, Palette.Primary, FontWeight.Bold)
                     Spacer(Modifier.height(u(10)))
                     Txt(s.name, 48, weight = FontWeight.Bold)
-                    Txt("${s.distanceKm} km 앞 · 약 ${s.etaMin}분 · ${facilities(s.toilet, s.nursing, s.kids)}", 32, Palette.Sub)
+                    Txt("${RestDisplay.kmText(s.distanceKm)} · 약 ${s.etaMin}분\n${facilities(s.toilet, s.nursing, s.kids)}", 32, Palette.Sub)
                     Spacer(Modifier.height(u(10)))
                     Txt(live.suggestionWhy, 32, Palette.Ink)
                     Spacer(Modifier.height(u(20)))
@@ -122,7 +124,7 @@ fun RestScreen(live: LiveState) {
                         fg = Palette.OnPrimary,
                         enabled = !added,
                         size = 38,
-                        onClick = { CareService.run { it.addWaypoint(s.id) } }
+                        onClick = { CareService.addWaypoint(s.id) }
                     )
                 }
             } else {
@@ -144,7 +146,7 @@ fun RestScreen(live: LiveState) {
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Txt(st.name, 36, weight = FontWeight.Bold)
-                                Txt("${st.distanceKm} km · ${st.etaMin}분 · ${facilities(st.toilet, st.nursing, st.kids)}", 30, Palette.Sub)
+                                Txt("${RestDisplay.kmText(st.distanceKm)} · ${st.etaMin}분\n${facilities(st.toilet, st.nursing, st.kids)}", 30, Palette.Sub)
                             }
                             BigButton(
                                 text = if (added) "추가됨" else "추가",
@@ -154,7 +156,7 @@ fun RestScreen(live: LiveState) {
                                 fg = Palette.Ink,
                                 enabled = !added,
                                 size = 32,
-                                onClick = { CareService.run { it.addWaypoint(st.id) } }
+                                onClick = { CareService.addWaypoint(st.id) }
                             )
                         }
                     }
@@ -182,10 +184,11 @@ fun HistoryScreen(live: LiveState) {
             } else {
                 Txt("${events.size}번 기록됨", 44, Palette.Primary, FontWeight.Bold)
                 Spacer(Modifier.height(u(16)))
-                val bySeat = events.groupingBy { it.seatKey }.eachCount().maxByOrNull { it.value }
+                // a group ("2열 전체") counts once for every seat in it; events with no seat known are left out
+                val bySeat = events.flatMap { SeatKeys.split(it.seatKey) }.groupingBy { it }.eachCount().maxByOrNull { it.value }
                 if (bySeat != null) {
                     Txt("가장 잦은 자리", 30, Palette.Muted)
-                    Txt("${Seat.fromKey(bySeat.key)?.ko ?: bySeat.key} · ${bySeat.value}번", 36, weight = FontWeight.Bold)
+                    Txt("${SeatKeys.label(bySeat.key)} · ${bySeat.value}번", 36, weight = FontWeight.Bold)
                     Spacer(Modifier.height(u(16)))
                 }
                 Txt("목적지별 평균 시각", 30, Palette.Muted)
@@ -240,7 +243,7 @@ fun HistoryScreen(live: LiveState) {
                         ) {
                             Txt(fmt.format(Date(e.epochMs)), 32, Palette.Sub, modifier = Modifier.width(u(200)))
                             Txt("출발 ${e.elapsedMin}분째", 34, weight = FontWeight.Bold, modifier = Modifier.width(u(240)))
-                            Txt(Seat.fromKey(e.seatKey)?.ko ?: e.seatKey, 32, modifier = Modifier.width(u(240)))
+                            Txt(SeatKeys.label(e.seatKey), 32, maxLines = 1, modifier = Modifier.width(u(240)))
                             Txt(e.destination, 32, Palette.Sub)
                         }
                     }
@@ -269,13 +272,13 @@ fun CheckScreen(live: LiveState) {
     val rows: List<CheckRow> = live.check + listOf(
         CheckRow("주행 신호 (기어·속도)", if (live.signalsConnected) Level.OK else Level.BAD,
             if (live.signalsConnected) "연결됨 · ${gearLabel(live.gear)}" else "연결 안 됨 (CAR_SPEED 권한 확인)"),
-        CheckRow("창문 열림 방향", Level.WARN, "실차 확인 전 · 오른쪽에서 방향을 고르세요"),
         CheckRow(
             "내비·휴게소 정보", if (DemoNavi.usingFallback) Level.WARN else Level.NONE,
             if (DemoNavi.usingFallback) "휴게소 파일을 읽지 못함 · 가상 목록 사용"
-            else "내비 연동 전 · 목록은 도로공사 파일 ${DemoNavi.catalogSize}곳(기준일 ${DemoNavi.dataAsOf}), 위치는 시연용 가상"
+            else "경유지는 내비 연동(NaviHelper)으로 넣음 · 휴게소 목록은 도로공사 파일 ${DemoNavi.catalogSize}곳(기준일 ${DemoNavi.dataAsOf}) · 현재 위치는 시연용 가상"
         ),
-        CheckRow("음성 호출 (멀미 나요)", Level.NONE, "앱 쪽 준비 끝 · Gleo 검토와 승인 전이라 아직 말로는 안 불려요. 지금은 화면 버튼만 사용"),
+        CheckRow("창문", Level.NONE, "앱이 열지 않음 · 안내 음성으로 권하기만 함"),
+        CheckRow("음성 호출 (Gleo)", Level.NONE, "멀미 나요 · 괜찮아졌어요 · 화면 열기 3가지 · 자리는 한 자리 또는 묶음(뒷자리 모두 등)"),
         CheckRow("앱 마켓 권한 승인", Level.NONE, "SDK 문서상 일반 권한 · 마켓 추가 승인 여부 미확인")
     )
     Row(
@@ -303,27 +306,13 @@ fun CheckScreen(live: LiveState) {
             Modifier.width(u(560)).fillMaxHeight(),
             verticalArrangement = Arrangement.spacedBy(u(30))
         ) {
+            // the last voice calls and the seat value Gleo AI sent, kept apart so other log lines cannot push them out
             Panel(Modifier.fillMaxWidth()) {
-                Txt("창문 열림 방향", 36, weight = FontWeight.Bold)
-                Spacer(Modifier.height(u(6)))
-                Txt("실차에서 확인할 때까지\n선택해 두세요", 30, Palette.Sub)
-                Spacer(Modifier.height(u(16)))
-                Row(horizontalArrangement = Arrangement.spacedBy(u(20))) {
-                    BigButton(
-                        text = "큰 값이 열림", heightPx = 100, widthPx = 230,
-                        bg = if (live.windowOpenHigher) Palette.Primary else Palette.Seg,
-                        fg = if (live.windowOpenHigher) Palette.OnPrimary else Palette.Ink,
-                        size = 30,
-                        onClick = { CareService.setWindowOpenHigher(true) }
-                    )
-                    BigButton(
-                        text = "작은 값이 열림", heightPx = 100, widthPx = 230,
-                        bg = if (!live.windowOpenHigher) Palette.Primary else Palette.Seg,
-                        fg = if (!live.windowOpenHigher) Palette.OnPrimary else Palette.Ink,
-                        size = 30,
-                        onClick = { CareService.setWindowOpenHigher(false) }
-                    )
-                }
+                Txt("음성 호출 기록", 36, weight = FontWeight.Bold)
+                Spacer(Modifier.height(u(8)))
+                val calls = log.filter { it.contains("Gleo 호출") }.take(3)
+                if (calls.isEmpty()) Txt("아직 없음", 28, Palette.Muted)
+                calls.forEach { Txt(it, 26, Palette.Sub, maxLines = 2) }
             }
             Panel(Modifier.fillMaxWidth()) {
                 Txt("시연 도구", 36, weight = FontWeight.Bold)
@@ -342,7 +331,7 @@ fun CheckScreen(live: LiveState) {
                 Spacer(Modifier.height(u(8)))
                 if (log.isEmpty()) Txt("아직 없음", 30, Palette.Muted)
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                    log.forEach { Txt(it, 30, Palette.Sub, maxLines = 2) }
+                    log.forEach { Txt(it, 24, Palette.Sub, maxLines = 2) }
                 }
             }
         }

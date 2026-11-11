@@ -1,4 +1,4 @@
-// ver 1.1.0 | 2026-11-05 19:31
+// ver 1.2.0 | 2026-11-11 17:30
 package app.motioncare.data
 
 import app.motioncare.core.HistoryEvent
@@ -33,6 +33,9 @@ object DemoNavi {
     val dataAsOf: String? get() = catalog.firstOrNull()?.asOf
 
     val catalogSize: Int get() = catalog.size
+
+    /** The rest area behind a [RestStop.id] ("route|name|direction"), or null for the made-up stops. */
+    fun areaOf(id: String): RestArea? = catalog.firstOrNull { "${it.route}|${it.name}|${it.direction}" == id }
 
     /** The stops in front of the demo position, nearest first (at most 10). */
     val stops: List<RestStop>

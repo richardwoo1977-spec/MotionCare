@@ -1,4 +1,4 @@
-// ver 1.2.0 | 2026-11-06 16:40
+// ver 1.3.0 | 2026-11-11 18:30
 package app.motioncare.service
 
 import android.content.BroadcastReceiver
@@ -29,17 +29,17 @@ class GleoReceiver : BroadcastReceiver() {
         }
         val name = intent.action ?: call.action
         val app = context.applicationContext
-        val seat = seatFrom(intent)
-        DiagLog.w("Gleo 호출: ${call.action}" + (seat?.let { " · 좌석 ${it.key}" } ?: ""))
+        val seats = seatsFrom(intent)
+        DiagLog.w("Gleo 호출: ${call.action}" + (if (seats.isEmpty()) "" else " · 좌석 " + seats.joinToString("+") { it.key }))
         when (call) {
             GleoCall.RELIEF -> {
                 // the answer to Gleo depends on what the care logic decided, so it is sent from there
                 CareService.runOrStart(context) { brain ->
-                    when (brain.voiceRelief(seat)) {
+                    when (brain.voiceRelief(seats)) {
                         VoiceReliefResult.ASKING ->
                             reply(app, name, "asking", "Which seat is the affected passenger in?", MISSING_SEAT)
                         VoiceReliefResult.RETARGETED ->
-                            reply(app, name, "success", "Relief now follows the named seat.")
+                            reply(app, name, "success", "Relief now follows the named seats.")
                         else ->
                             reply(app, name, "success", "Relief has started.")
                     }
@@ -52,15 +52,16 @@ class GleoReceiver : BroadcastReceiver() {
         reply(app, name, "success", "요청을 받았어요")
     }
 
-    /** The seat Gleo AI passed with the call, or null. The extra's name is not fixed in the guide, so every extra is read. */
+    /** The seats Gleo AI passed with the call (one seat or a group), or none. The extra's name is not fixed in the guide, so every extra is read. */
     @Suppress("DEPRECATION")
-    private fun seatFrom(intent: Intent): Seat? {
-        val extras = intent.extras ?: return null
+    private fun seatsFrom(intent: Intent): Set<Seat> {
+        val extras = intent.extras ?: return emptySet()
         DiagLog.w("Gleo 값: " + extras.keySet().joinToString { k -> "$k=${extras.get(k)}" }.take(300))
         for (k in extras.keySet()) {
-            GleoSeat.fromParamText(extras.get(k)?.toString())?.let { return it }
+            val seats = GleoSeat.fromParamText(extras.get(k)?.toString())
+            if (seats.isNotEmpty()) return seats
         }
-        return null
+        return emptySet()
     }
 
     /** Tells Gleo the call was handled (response format from the Pleos callback guide: success / asking / fail / error). */

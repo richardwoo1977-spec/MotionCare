@@ -1,4 +1,4 @@
-// ver 1.3.0 | 2026-11-06 19:08
+// ver 1.5.0 | 2026-11-11 19:05
 package app.motioncare.data
 
 import app.motioncare.core.CarLayout
@@ -18,9 +18,14 @@ data class LiveState(
     val speedKmh: Double = 0.0,
     /** seat key -> occupied (null = unknown); only seats the vehicle reports are present */
     val occupancy: Map<String, Boolean?> = emptyMap(),
-    val designated: Set<String> = emptySet(),
-    /** seat key marked "멀미 나요" by the relief: followed while it runs, still marked after it ran out by itself; null when none */
-    val reliefSeat: String? = null,
+    /** seat keys marked "멀미 나요" by the relief: followed while it runs, still marked after it ran out by itself */
+    val reliefSeats: Set<String> = emptySet(),
+    /** the relief runs for the whole cabin (no seat known) */
+    val reliefWhole: Boolean = false,
+    /** seat keys tapped on the screen while no relief runs */
+    val pickedSeats: Set<String> = emptySet(),
+    /** the "멀미 나요" button may be pressed: seats are picked or still marked */
+    val canRelieve: Boolean = false,
     /** seat rows to draw (1, 2 or 3); 2 until the vehicle says otherwise */
     val rows: Int = CarLayout.DEFAULT_ROWS,
     val mode: CareMode = CareMode.IDLE,

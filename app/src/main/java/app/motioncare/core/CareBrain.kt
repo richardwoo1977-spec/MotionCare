@@ -1,4 +1,4 @@
-// ver 1.4.0 | 2026-11-06 19:08
+// ver 1.10.0 | 2026-11-11 20:30
 package app.motioncare.core
 
 import app.motioncare.data.DemoNavi
@@ -9,11 +9,14 @@ import app.motioncare.data.Store
  * The decision logic. No Android framework types except the on-device [Store] and the shared [Live]
  * state. Everything here runs on the main thread (the service posts all signals to it).
  *
- *  PREVENT  while a trip is on and a designated seat is occupied (or its occupancy is unknown):
- *           recirculation off (outside air), fan one step up toward that seat.
- *  RELIEF   after "멀미 나요" (also while driving): recirculation off, fan max, air to the face,
- *           HVAC on, window cracked only at low speed; ends by itself after [Policy.RELIEF_MAX_MIN] minutes
- *           (settings go back, but the seat stays marked "멀미 나요" until someone says it is over).
+ * Seats are chosen by voice (one seat or a group: "뒷자리 모두", "2열 전체" ...), or on the screen by tapping seats.
+ * The screen button works only once at least one seat is picked: it never guesses the seats.
+ *
+ *  RELIEF   after "멀미 나요" (also while driving): recirculation off, fan max, air to the face, HVAC on.
+ *           The window is never opened by the app (rain, snow, wind, smell or dust outside cannot be known):
+ *           the guidance suggests opening it a little when it is fine outside. Ends by itself after [Policy.RELIEF_MAX_MIN] minutes
+ *           (settings go back, but the seats stay marked "멀미 나요" until someone says it is over).
+ *  PREVENT  only when [preventTargets] names seats.
  */
 class CareBrain(
     private val clock: () -> Long,
@@ -23,16 +26,20 @@ class CareBrain(
     private var gear = Gear.UNKNOWN
     private var speedKmh = 0.0
     private var occupancy: Map<String, Boolean?> = emptyMap()
-    private var designated: Set<String> = emptySet()
     private var destination = ""
     private var history: List<HistoryEvent> = emptyList()
 
     private var mode = CareMode.IDLE
     private var reliefStartMs = 0L
-    private var reliefSeat: Seat? = null
 
-    /** The seat still marked "멀미 나요" after the relief ran out by itself; nobody has said it is over. */
-    private var lingerSeat: Seat? = null
+    /** The seats the relief looks after; empty = the whole cabin (no seat known). */
+    private var reliefSeats: Set<Seat> = emptySet()
+
+    /** The seats still marked "멀미 나요" after the relief ran out by itself; nobody has said it is over. */
+    private var lingerSeats: Set<Seat> = emptySet()
+
+    /** Seats tapped on the screen while no relief runs; the "멀미 나요" button relieves exactly these. */
+    private var picked: Set<Seat> = emptySet()
 
     /** When Gleo AI was asked "which seat?" and no answer has come yet; 0 = not asking. */
     private var seatAskSinceMs = 0L
@@ -50,11 +57,16 @@ class CareBrain(
     private var caption = ""
     private var captionUntilMs = 0L
 
+    /** The window hint is written on the screen once the first guidance has been shown for a while. */
+    private var windowHintPending = false
+
+    /** The relief guidance is spoken [SPEAK_DELAY_MS] after the relief starts, after Gleo AI's own answer. */
+    private var speechPending = false
+
     var desired: Desired = Desired()
         private set
 
     fun init() {
-        designated = Store.designated
         destination = Store.destination.ifBlank { DemoNavi.destinations.first() }
         history = Store.history()
         refresh()
@@ -88,14 +100,22 @@ class CareBrain(
             now - parkedSinceMs >= Policy.TRIP_END_PARK_SEC * 1000L
         ) endTrip()
         if (mode == CareMode.RELIEF && now - reliefStartMs >= Policy.RELIEF_MAX_MIN * 60_000L) {
-            val still = reliefSeat
+            val still = reliefSeats
             endRelief("10분이 지나 원래 설정으로 되돌렸어요")
-            lingerSeat = still
+            lingerSeats = still
         }
         if (seatAskSinceMs > 0L && mode != CareMode.RELIEF && now - seatAskSinceMs >= Policy.SEAT_ASK_SEC * 1000L) {
-            // nobody named the seat in time: relieve every seat the car reports (no single target)
+            // nobody named the seat in time: no guess; the seat can still be said (or the button pressed) at any time
             seatAskSinceMs = 0L
-            startRelief(null)
+            say("어느 자리인지 말씀해 주세요", 15_000)
+        }
+        if (speechPending && mode == CareMode.RELIEF && now - reliefStartMs >= SPEAK_DELAY_MS) {
+            speechPending = false
+            speak("$RELIEF_GUIDE. $WINDOW_HINT")
+        }
+        if (windowHintPending && mode == CareMode.RELIEF && now - reliefStartMs >= FIRST_GUIDE_MS) {
+            windowHintPending = false
+            say(WINDOW_HINT, 10_000)
         }
         offerRestInAdvance()
         if (caption.isNotEmpty() && now >= captionUntilMs) caption = ""
@@ -103,18 +123,6 @@ class CareBrain(
     }
 
     // ------------------------------------------------------------------ user actions
-
-    fun toggleDesignate(seatKey: String) {
-        if (lingerSeat?.key == seatKey) {
-            // tapping the seat that is still marked from the relief clears the mark
-            lingerSeat = null
-            refresh()
-            return
-        }
-        designated = if (seatKey in designated) designated - seatKey else designated + seatKey
-        Store.designated = designated
-        refresh()
-    }
 
     fun setDestination(name: String) {
         destination = name
@@ -127,39 +135,66 @@ class CareBrain(
         refresh()
     }
 
-    /** "멀미 나요": always possible, also while driving. The window still only opens at low speed. */
+    /**
+     * A seat tapped on the screen. Ignored while relieving (the seats are changed by voice then).
+     * Seats still marked after a relief ran out are toggled there; otherwise the tap picks or unpicks the seat.
+     */
+    fun tapSeat(seatKey: String) {
+        if (mode == CareMode.RELIEF) return
+        val seat = Seat.fromKey(seatKey) ?: return
+        if (seat == Seat.ROW_1_LEFT) return
+        if (lingerSeats.isNotEmpty()) {
+            lingerSeats = if (seat in lingerSeats) lingerSeats - seat else lingerSeats + seat
+        } else {
+            picked = if (seat in picked) picked - seat else picked + seat
+        }
+        refresh()
+    }
+
+    /** "멀미 나요" on the screen: works only when seats are picked (or still marked); relieves exactly those. */
     fun reliefPressed() {
         if (mode == CareMode.RELIEF) return
+        val seats = lingerSeats.ifEmpty { picked }
+        if (seats.isEmpty()) return
         cancelSeatAsk()
-        startRelief()
+        startRelief(seats)
         refresh()
     }
 
     fun reliefEnd() {
         cancelSeatAsk()
-        lingerSeat = null
+        lingerSeats = emptySet()
         if (mode == CareMode.RELIEF) endRelief("원래 설정으로 되돌렸어요")
         refresh()
     }
 
     /**
-     * "멀미 나요" by voice, with the seat when the driver named it.
-     * Seat named -> relief for that seat (also while relieving: the target moves there).
-     * No seat -> the designated seat, else the only person sitting (front passenger included), else ask which seat.
-     * Nobody reported as sitting -> relief with no single seat.
+     * "멀미 나요" by voice, with the seats when the driver named them (one seat or a group).
+     * Seats named -> relief for those seats (also while relieving: the relief moves there).
+     * None named -> the seats still marked, else the seats picked on the screen, else the only passenger sitting,
+     * else ask which seat.
+     * Nobody reported as sitting -> relief for the whole cabin.
      */
-    fun voiceRelief(seat: Seat?): VoiceReliefResult {
+    fun voiceRelief(seats: Set<Seat>): VoiceReliefResult {
+        val named = sitting(seats)
+        if (seats.isNotEmpty() && named.isEmpty()) {
+            // a seat was said but none of it is in this car (e.g. the 3rd row of a two-row car): ask again
+            if (mode != CareMode.RELIEF) seatAskSinceMs = clock()
+            say("다시 말씀해 주시겠어요? 어느 자리인가요?", Policy.SEAT_ASK_SEC * 1000L)
+            refresh()
+            return VoiceReliefResult.ASKING
+        }
         if (mode == CareMode.RELIEF) {
-            if (seat != null && seat != reliefSeat) {
-                reliefSeat = seat
+            if (named.isNotEmpty() && named != reliefSeats) {
+                reliefSeats = named
                 refresh()
                 return VoiceReliefResult.RETARGETED
             }
             return VoiceReliefResult.ALREADY
         }
         val people = occupiedPassengers()
-        val chosen = seat ?: lingerSeat ?: activeDesignated().firstOrNull() ?: people.singleOrNull()
-        if (chosen != null || people.isEmpty()) {
+        val chosen = named.ifEmpty { lingerSeats }.ifEmpty { picked }.ifEmpty { if (people.size == 1) people else emptySet() }
+        if (chosen.isNotEmpty() || people.isEmpty()) {
             seatAskSinceMs = 0L
             startRelief(chosen)
             refresh()
@@ -205,28 +240,30 @@ class CareBrain(
         captionUntilMs = clock() + forMs
     }
 
-    private fun activeDesignated(): List<Seat> =
-        Seat.entries.filter { it.key in designated && occupancy[it.key] != false }
-
     /** Everyone but the driver whom the car reports as sitting. */
-    private fun occupiedPassengers(): List<Seat> =
-        Seat.entries.filter { it != Seat.ROW_1_LEFT && occupancy[it.key] == true }
+    private fun occupiedPassengers(): Set<Seat> =
+        Seat.entries.filter { it != Seat.ROW_1_LEFT && occupancy[it.key] == true }.toSet()
+
+    /**
+     * Of the named seats, those this car has (the seats its occupancy report lists; all when it lists none), then of
+     * those the ones not reported as empty (a group like "뒷자리 모두" names seats the car may not have). When the car
+     * reports all of them as empty, they are used as said: a seat sensor can miss a child in a child seat.
+     * Empty when none of the named seats is in this car.
+     */
+    private fun sitting(seats: Set<Seat>): Set<Seat> {
+        val inCar = if (occupancy.isEmpty()) seats else seats.filter { it.key in occupancy }.toSet()
+        val kept = inCar.filter { occupancy[it.key] != false }.toSet()
+        return kept.ifEmpty { inCar }
+    }
+
+    /** Seats looked after while driving with no relief on. None: the app changes nothing until someone says "멀미 나요". */
+    private fun preventTargets(): Set<Seat> = emptySet()
 
     private fun cancelSeatAsk() {
         if (seatAskSinceMs > 0L) {
             seatAskSinceMs = 0L
             caption = ""
         }
-    }
-
-    private fun reliefTarget(): Seat? {
-        lingerSeat?.let { return it }
-        activeDesignated().firstOrNull()?.let { return it }
-        // nobody designated: the first occupied rear seat, otherwise unspecified (all reported areas)
-        return listOf(
-            Seat.ROW_2_LEFT, Seat.ROW_2_CENTER, Seat.ROW_2_RIGHT,
-            Seat.ROW_3_LEFT, Seat.ROW_3_CENTER, Seat.ROW_3_RIGHT
-        ).firstOrNull { occupancy[it.key] == true }
     }
 
     private fun elapsedMin(): Int =
@@ -243,7 +280,8 @@ class CareBrain(
     }
 
     private fun endTrip() {
-        lingerSeat = null
+        lingerSeats = emptySet()
+        picked = emptySet()
         if (mode == CareMode.RELIEF) endRelief("주행이 끝나 원래 설정으로 되돌렸어요")
         tripActive = false
         parkedSinceMs = 0L
@@ -253,27 +291,30 @@ class CareBrain(
         waypoints = emptyList()
     }
 
-    private fun startRelief(seat: Seat? = reliefTarget()) {
+    private fun startRelief(seats: Set<Seat>) {
         mode = CareMode.RELIEF
         reliefStartMs = clock()
-        reliefSeat = seat
-        lingerSeat = null
+        reliefSeats = seats
+        lingerSeats = emptySet()
+        picked = emptySet()
         if (tripActive) {
-            val ev = HistoryEvent(clock(), elapsedMin(), seat?.key ?: Seat.ROW_2_LEFT.key, destination)
+            val ev = HistoryEvent(clock(), elapsedMin(), SeatKeys.join(seats), destination)
             Store.addEvent(ev)
             history = Store.history()
         }
         suggestion = Policy.pickStop(DemoNavi.stops)
         suggestionWhy = "멀미가 났어요. 가까운 휴게소에서 잠깐 쉬어 가요"
         offered = true
-        val msg = "화면 대신 먼 곳을 보세요"
-        say(msg, 15_000)
-        speak(msg)
+        say(RELIEF_GUIDE, FIRST_GUIDE_MS)
+        windowHintPending = true
+        speechPending = true
     }
 
     private fun endRelief(message: String) {
         mode = CareMode.IDLE
-        reliefSeat = null
+        reliefSeats = emptySet()
+        windowHintPending = false
+        speechPending = false
         say(message, 6000)
     }
 
@@ -297,13 +338,13 @@ class CareBrain(
                 fan = FanWant.MAX,
                 faceDirection = true,
                 powerOn = true,
-                windowOpen = Policy.windowAllowed(gear, speedKmh),
-                target = reliefSeat
+                windowOpen = false,
+                targets = reliefSeats
             )
         }
         if (tripActive) {
-            val seat = activeDesignated().firstOrNull()
-            if (seat != null) return Desired(recircOff = true, fan = FanWant.PLUS_ONE, target = seat)
+            val seats = preventTargets()
+            if (seats.isNotEmpty()) return Desired(recircOff = true, fan = FanWant.PLUS_ONE, targets = seats)
         }
         return Desired()
     }
@@ -323,13 +364,16 @@ class CareBrain(
         }
         val elapsed = elapsedMin()
         val restAfter = Policy.restAfterMin(history, destination)
+        val marked = if (mode == CareMode.RELIEF) reliefSeats else lingerSeats
         Live.update {
             it.copy(
                 gear = gear,
                 speedKmh = speedKmh,
                 occupancy = occupancy,
-                designated = designated,
-                reliefSeat = if (mode == CareMode.RELIEF) reliefSeat?.key else lingerSeat?.key,
+                reliefSeats = marked.map { s -> s.key }.toSet(),
+                reliefWhole = mode == CareMode.RELIEF && reliefSeats.isEmpty(),
+                pickedSeats = if (mode == CareMode.RELIEF) emptySet() else picked.map { s -> s.key }.toSet(),
+                canRelieve = mode != CareMode.RELIEF && (lingerSeats.isNotEmpty() || picked.isNotEmpty()),
                 mode = mode,
                 caption = caption,
                 tripActive = tripActive,
@@ -344,6 +388,11 @@ class CareBrain(
         }
     }
 }
+
+private const val FIRST_GUIDE_MS = 8_000L
+private const val SPEAK_DELAY_MS = 5_000L
+private const val RELIEF_GUIDE = "화면 대신 먼 곳을 보세요"
+private const val WINDOW_HINT = "밖이 괜찮으면 창문을 조금 열어 보세요"
 
 /** What [CareBrain.voiceRelief] did, so the voice call can answer Gleo AI. */
 enum class VoiceReliefResult { STARTED, ASKING, RETARGETED, ALREADY }

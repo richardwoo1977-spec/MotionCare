@@ -1,14 +1,12 @@
-// ver 1.7.0 | 2026-11-06 17:05
+// ver 2.1.0 | 2026-11-11 19:10
 package app.motioncare.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -23,28 +21,31 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import app.motioncare.core.CarLayout
-import app.motioncare.core.BubbleSpot
 import app.motioncare.core.Seat
+import app.motioncare.core.SeatKeys
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * The car seen from above. All numbers below are in the 1040 x 520 drawing space of the design, but only the part that
- * is shown is used: x from the rear edge of the body (62) to the nose (964), y from 0 to 446. That part is scaled to
- * 1452 design px, so the car lines up with the left edge of the first card and the right edge of the button.
+ * The car seen from above, front up. Seats are chosen mostly by voice; a tap picks a seat (not while relieving).
+ * The drawing is the confirmed home car (1040 x 520 drawing space, front to the right), turned 90 degrees
+ * counter-clockwise and cut just in front of the windshield (no bonnet), scaled to fill the box it gets.
+ *
+ * Drawing (x, y) -> screen: x = (y - SHOWN_Y0) * k, y = (cut - x) * k. The driver side (small y) is on the left.
  */
-private const val VB_LEFT = 62f
-private const val VB_SHOWN_W = 902f
-private const val VB_SHOWN_H = 446f
-private const val DESIGN_CAR_W = 1452f
-private const val SCALE = DESIGN_CAR_W / VB_SHOWN_W
+private const val SHOWN_Y0 = 0f
+private const val SHOWN_Y_SPAN = 500f
+private const val SHOWN_REAR_X = 40f
+/** The front edge of the shown part for a three-row car; it moves back with [CarLayout.frontShift]. */
+private const val CUT_THREE_ROWS = 840f
 
 private val Mint = Color(0xFF4FD6BC)
 private val MintLight = Color(0xFF7BE6D0)
@@ -59,126 +60,160 @@ private fun svg(d: String): Path = PathParser().parsePathString(d).toPath()
 private val BODY = "M62 250 L62 165 C62 112 94 76 152 70 L772 70 C866 70 934 98 952 162 C960 190 964 220 964 250 " +
     "C964 280 960 310 952 338 C934 402 866 430 772 430 L152 430 C94 424 62 388 62 335 Z"
 
-private const val CAR_SHIFT_Y = -11.55f           // the whole car group sits a little higher than its drawing numbers (as in the design)
+/** Speech bubble size in drawing units (scaled with the car). */
+private const val BUBBLE_W = 128f
+private const val BUBBLE_H = 40f
+private const val BUBBLE_R = 10f
+private const val BUBBLE_TAIL = 12f
+private const val BUBBLE_TAIL_HALF = 9f
+/** Seats are drawn this much bigger than in the confirmed drawing (around their own centre). */
+private const val SEAT_SCALE = 1.25f
+/** The head of a sitting person, in front of the seat centre (12 in the drawing, scaled with the seat). */
+private const val HEAD_AHEAD = 12f * SEAT_SCALE
+/** From the top of the bubble down to the centre of the head under it (tail tip 21 above the scaled head). */
+private const val BUBBLE_ABOVE_HEAD = 52f + 21f + 12.5f * SEAT_SCALE
+/** Tap area of one seat in drawing units: across the car (narrower than the 98 between 3rd-row seats) and along it. */
+private const val HIT_ACROSS = 96f
+private const val HIT_ALONG = 112f
+private const val BUBBLE_FONT = 20f
+private const val ROW_LABEL_FONT = 24f
 
 /**
- * The speech bubble of a chosen seat: an outline with one pointed corner as its tail, the point touching the head of the
- * person on that seat. Where it goes is decided by [CarLayout] (inside the cabin, covering no other seat, wheel,
- * console or dashboard, overlapping no other bubble).
- */
-private fun bubblePath(spot: BubbleSpot): Path {
-    val x = spot.x
-    val y = spot.y
-    val w = CarLayout.BW
-    val h = CarLayout.BH
-    val r = CarLayout.BR
-    val t = CarLayout.BT
-    val b = CarLayout.BTW
-    // the tail hangs from the right corner of the body; its point touches the head of the person on that seat
-    return if (spot.tailDown) {
-        svg(
-            "M${x + r} $y H${x + w - r} A$r $r 0 0 1 ${x + w} ${y + r} V${y + h + t} L${x + w - b} ${y + h} " +
-                "H${x + r} A$r $r 0 0 1 $x ${y + h - r} V${y + r} A$r $r 0 0 1 ${x + r} $y Z"
-        )
-    } else {
-        svg(
-            "M${x + r} ${y + h} H${x + w - r} A$r $r 0 0 0 ${x + w} ${y + h - r} V${y - t} L${x + w - b} $y " +
-                "H${x + r} A$r $r 0 0 0 $x ${y + r} V${y + h - r} A$r $r 0 0 0 ${x + r} ${y + h} Z"
-        )
-    }
-}
-
-private const val BUBBLE_FONT_VB = 18f
-
-@Composable
-private fun vbDp(v: Float): Dp = u(v * SCALE)
-
-/** A horizontal position: the shown part of the drawing starts at [VB_LEFT]. */
-@Composable
-private fun vbX(v: Float): Dp = u((v - VB_LEFT) * SCALE)
-
-/**
- * @param designated seat keys the person marked as feeling sick
+ * @param marked seat keys marked "멀미 나요" (while relieving, and still after the relief ran out by itself)
+ * @param picked seat keys tapped (lit, no bubble yet)
+ * @param whole the relief runs for the whole cabin (no seat known)
+ * @param onTap a seat was tapped; null = taps are off (while relieving)
  * @param occupancy seat key -> sitting (true), empty (false) or not known (null / missing)
- * @param rows seat rows of the car (1 = sports car, 2 = most cars, 3 = SUV / van), from the vehicle's own report
+ * @param rows seat rows of the car (1, 2 or 3), from the vehicle's own report
+ * @param boxW width of the box the car fills, in design px
+ * @param boxH height of the box the car fills, in design px
  */
 @Composable
 fun CarView(
-    designated: Set<String>,
+    marked: Set<String>,
+    picked: Set<String>,
+    whole: Boolean,
+    onTap: ((Seat) -> Unit)?,
     occupancy: Map<String, Boolean?>,
-    onToggle: (Seat) -> Unit,
-    rows: Int = CarLayout.DEFAULT_ROWS
+    rows: Int,
+    boxW: Float,
+    boxH: Float
 ) {
     val layout = remember(rows) { CarLayout.of(rows) }
-    val bubblePaths = remember(rows) { layout.bubbles.mapValues { bubblePath(it.value) } }
     val body = remember { svg(BODY) }
-    Box(Modifier.size(u(DESIGN_CAR_W), u(VB_SHOWN_H * SCALE))) {
-        Canvas(Modifier.fillMaxSize()) {
-            val k = size.width / VB_SHOWN_W
-            withTransform({ scale(k, k, Offset.Zero); translate(-VB_LEFT, 0f) }) {
-                withTransform({ translate(0f, CAR_SHIFT_Y) }) {
-                    drawCarBody(body, layout)
-                    layout.seats.forEach { p ->
-                        drawSeat(p.x, p.y, p.seat.key in designated, occupancy[p.seat.key] == true)
-                    }
-                    drawSteeringWheel(layout.wheel)
-                    layout.seats.forEach { p ->
-                        if (p.seat.key in designated) {
-                            bubblePaths[p.seat]?.let { path ->
-                                drawPath(path, Palette.Bg)
-                                drawPath(path, Mint, style = Stroke(width = 3f, join = StrokeJoin.Round))
+    val cut = CUT_THREE_ROWS - layout.frontShift
+    val k = min(boxW / SHOWN_Y_SPAN, boxH / (cut - SHOWN_REAR_X))
+    val w = SHOWN_Y_SPAN * k
+    val h = (cut - SHOWN_REAR_X) * k
+    fun sx(y: Float) = (y - SHOWN_Y0) * k
+    fun sy(x: Float) = (cut - x) * k
+
+    // a bubble for every marked seat: it sits in the gap in front of its own seat, so rows never cover each other
+    val bubbleSeats = layout.seats.filter { p -> p.seat.key in marked }
+    val desc = when {
+        whole -> "차 전체에 멀미 대응 중"
+        marked.isEmpty() -> "위에서 본 차, 멀미 나는 자리 없음"
+        else -> "멀미 나요: " + SeatKeys.label(marked.joinToString("+"))
+    }
+
+    Box(Modifier.size(u(boxW), u(boxH)).semantics { contentDescription = desc }) {
+        Box(Modifier.align(Alignment.Center).size(u(w), u(h))) {
+            Canvas(Modifier.fillMaxSize()) {
+                val px = size.width / w          // pixels per design px
+                val s = k * px
+                withTransform({
+                    scale(s, s, Offset.Zero)
+                    translate(-SHOWN_Y0, cut)
+                    rotate(-90f, Offset.Zero)
+                }) {
+                    clipRect(left = 0f, top = -40f, right = cut, bottom = 540f) {
+                        drawCarBody(body, layout)
+                        layout.seats.forEach { p ->
+                            withTransform({ scale(SEAT_SCALE, SEAT_SCALE, Offset(p.x, p.y)) }) {
+                                drawSeat(p.x, p.y, p.seat.key in marked || p.seat.key in picked, occupancy[p.seat.key] == true)
                             }
                         }
+                        drawSteeringWheel(layout.wheel)
+                    }
+                }
+                // bubbles are drawn upright, above the head of the person on the seat
+                bubbleSeats.forEach { p ->
+                    val hx = sx(p.y) * px
+                    val top = (sy(p.x + HEAD_AHEAD) - BUBBLE_ABOVE_HEAD * k) * px
+                    drawPath(bubblePath(hx, top, k * px, w * px), Palette.Bg)
+                    drawPath(bubblePath(hx, top, k * px, w * px), Mint, style = Stroke(width = 4f * px, join = StrokeJoin.Round))
+                }
+            }
+
+            // row names, left of the car (a one-row car needs none)
+            if (layout.rows >= 2) {
+                layout.seats.map { it.seat.row to it.x }.distinctBy { it.first }.forEach { (row, x) ->
+                    Box(
+                        Modifier.offset(u(0), u(sy(x) - 20f * k)).size(u(56f * k), u(40f * k)),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Txt("${row}열", (ROW_LABEL_FONT * k).roundToInt(), Palette.Sub, FontWeight.Normal, maxLines = 1)
                     }
                 }
             }
-        }
 
-        // row names (a one-row car needs none)
-        if (layout.rows >= 2) {
-            layout.seats.map { it.seat.row to it.x }.distinct().forEach { (row, x) ->
-                VbText("${row}열", x - 2f, 38f - 8f + CAR_SHIFT_Y, 24f, Palette.Sub, FontWeight.Normal)
-            }
-        }
-
-        // the text of the speech bubbles (the bubble itself is drawn above)
-        layout.seats.forEach { p ->
-            val spot = layout.bubbles.getValue(p.seat)
-            if (p.seat.key in designated) {
-                Box(
-                    Modifier.offset(vbX(spot.x), vbDp(spot.y + CAR_SHIFT_Y)).size(vbDp(CarLayout.BW), vbDp(CarLayout.BH)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Txt("멀미 나요", (BUBBLE_FONT_VB * SCALE).roundToInt(), Palette.Primary, FontWeight.Medium, maxLines = 1)
+            // seat tap areas (not the driver seat; none while relieving)
+            if (onTap != null) {
+                layout.seats.filter { it.seat != Seat.ROW_1_LEFT }.forEach { p ->
+                    val on = p.seat.key in picked || p.seat.key in marked
+                    val label = SeatKeys.label(p.seat.key) + (if (on) ", 골라짐" else "") + ", 누르면 " + (if (on) "빼기" else "고르기")
+                    Box(
+                        Modifier
+                            .offset(u(sx(p.y) - HIT_ACROSS * k / 2f), u(sy(p.x) - HIT_ALONG * k / 2f))
+                            .size(u(HIT_ACROSS * k), u(HIT_ALONG * k))
+                            .semantics { contentDescription = label }
+                            .clickable { onTap(p.seat) }
+                    )
                 }
             }
-        }
 
-        // seat hit areas (108 x 98 in the drawing; they never overlap the neighbouring seat)
-        layout.seats.forEach { p ->
-            val on = p.seat.key in designated
-            val label = "${p.seat.row}열 ${p.seat.side}" +
-                (if (occupancy[p.seat.key] == true) ", 앉음" else "") +
-                (if (on) ", 멀미 나요로 선택됨" else "")
-            Box(
-                Modifier
-                    .offset(vbX(p.x - 52f), vbDp(p.y - 49f + CAR_SHIFT_Y))
-                    .size(vbDp(108f), vbDp(98f))
-                    .semantics { contentDescription = label }
-                    .clickable { onToggle(p.seat) }
-            )
+            // bubble text
+            bubbleSeats.forEach { p ->
+                val left = bubbleLeft(sx(p.y), k, w)
+                val top = sy(p.x + HEAD_AHEAD) - BUBBLE_ABOVE_HEAD * k
+                Box(
+                    Modifier.offset(u(left), u(top)).size(u(BUBBLE_W * k), u(BUBBLE_H * k)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Txt("멀미 나요", (BUBBLE_FONT * k).roundToInt(), Palette.Primary, FontWeight.Medium, maxLines = 1)
+                }
+            }
         }
     }
 }
 
-/** A short text centred on ([cx], [cy]) in drawing units; [sizeVb] is the font size in drawing units. */
-@Composable
-private fun VbText(text: String, cx: Float, cy: Float, sizeVb: Float, color: Color, weight: FontWeight) {
-    Box(
-        Modifier.offset(vbX(cx - 60f), vbDp(cy - 20f)).width(vbDp(120f)).height(vbDp(40f)),
-        contentAlignment = Alignment.Center
-    ) {
-        Txt(text, (sizeVb * SCALE).roundToInt(), color, weight, maxLines = 1)
+/** Left edge of a bubble centred on [cx], kept inside the car box. All in design px. */
+private fun bubbleLeft(cx: Float, k: Float, boxW: Float): Float =
+    (cx - BUBBLE_W * k / 2f).coerceIn(0f, boxW - BUBBLE_W * k)
+
+/** The bubble outline in pixels: a rounded box with its tail pointing down at ([hx], top + height + tail). */
+private fun bubblePath(hx: Float, top: Float, k: Float, boxW: Float): Path {
+    val w = BUBBLE_W * k
+    val h = BUBBLE_H * k
+    val r = BUBBLE_R * k
+    val t = BUBBLE_TAIL * k
+    val b = BUBBLE_TAIL_HALF * k
+    val x = (hx - w / 2f).coerceIn(0f, boxW - w)
+    val y = top
+    return Path().apply {
+        moveTo(x + r, y)
+        lineTo(x + w - r, y)
+        quadraticBezierTo(x + w, y, x + w, y + r)
+        lineTo(x + w, y + h - r)
+        quadraticBezierTo(x + w, y + h, x + w - r, y + h)
+        lineTo(hx + b, y + h)
+        lineTo(hx, y + h + t)
+        lineTo(hx - b, y + h)
+        lineTo(x + r, y + h)
+        quadraticBezierTo(x, y + h, x, y + h - r)
+        lineTo(x, y + r)
+        quadraticBezierTo(x, y, x + r, y)
+        close()
     }
 }
 

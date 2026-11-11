@@ -1,4 +1,4 @@
-// ver 1.3.5 | 2026-11-06 19:08
+// ver 1.3.6 | 2026-11-11 14:35
 package app.motioncare.ui
 
 import androidx.compose.runtime.Composable
@@ -9,7 +9,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 
 /** Shown on the 점검 screen. */
-const val VERSION_LABEL = "ver 1.8.0 | 2026-11-06 19:08"
+const val VERSION_LABEL = "ver 2.0.3 | 2026-11-11 20:35"
 
 /**
  * The screens are drawn on a 1706 x 1210 px canvas (Pleos Connect app area), like TripSign.

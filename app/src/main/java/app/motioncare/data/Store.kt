@@ -1,4 +1,4 @@
-// ver 1.1.0 | 2026-11-05 22:50
+// ver 1.2.0 | 2026-11-11 18:30
 package app.motioncare.data
 
 import android.content.Context
@@ -14,10 +14,6 @@ object Store {
     fun init(context: Context) {
         if (sp == null) sp = context.applicationContext.getSharedPreferences("motioncare", Context.MODE_PRIVATE)
     }
-
-    var designated: Set<String>
-        get() = sp?.getStringSet("designated", emptySet())?.toSet() ?: emptySet()
-        set(value) { sp?.edit()?.putStringSet("designated", value)?.apply() }
 
     /** True when a bigger window value means "more open" (Android Automotive convention; confirm on the car). */
     var windowOpenHigher: Boolean

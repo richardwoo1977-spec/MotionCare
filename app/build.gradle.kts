@@ -1,4 +1,4 @@
-// ver 1.0.0 | 2026-11-05 13:25
+// ver 1.4.1 | 2026-11-11 20:35
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -16,8 +16,8 @@ android {
         applicationId = "app.motioncare"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 7
+        versionName = "2.0.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -52,6 +52,8 @@ android {
 
 dependencies {
     implementation(libs.vehicle.sdk)
+    implementation("ai.pleos.playground:NaviHelper:3.0.5")
+    implementation("ai.pleos.playground:TextToSpeech:3.3.1")
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

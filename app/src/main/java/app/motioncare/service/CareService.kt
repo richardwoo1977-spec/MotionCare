@@ -1,4 +1,4 @@
-// ver 1.1.0 | 2026-11-05 22:53
+// ver 1.2.0 | 2026-11-11 17:30
 package app.motioncare.service
 
 import android.app.Service
@@ -10,6 +10,8 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import app.motioncare.car.CarSignals
+import app.motioncare.car.NaviLink
+import app.motioncare.data.DemoNavi
 import app.motioncare.car.VehicleLink
 import app.motioncare.core.CareBrain
 import app.motioncare.core.CareMode
@@ -52,6 +54,17 @@ class CareService : Service() {
             return true
         }
 
+        /** "경유지로 추가": the app's own list, and the built-in navigation through NaviHelper when it is connected. */
+        fun addWaypoint(id: String) {
+            val s = instance ?: return
+            s.main.post {
+                s.brain?.addWaypoint(id)
+                val area = DemoNavi.areaOf(id)
+                if (area == null) DiagLog.w("내비 경유지: 시연용 휴게소라 좌표 없음")
+                else s.navi?.addWaypoint(area)
+            }
+        }
+
         fun setWindowOpenHigher(value: Boolean) {
             Store.windowOpenHigher = value
             Live.update { it.copy(windowOpenHigher = value) }
@@ -66,6 +79,7 @@ class CareService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private var brain: CareBrain? = null
     private var link: VehicleLink? = null
+    private var navi: NaviLink? = null
     private var car: CarSignals? = null
     private var speaker: Speaker? = null
     private var lastCaps = -1
@@ -120,6 +134,7 @@ class CareService : Service() {
             onRows = { n -> main.post { Live.update { s -> s.copy(rows = n) } } }
         )
         l.windowOpenHigher = Store.windowOpenHigher
+        navi = NaviLink(this, DiagLog::w) { _, text -> main.post { DiagLog.w(text) } }.also { it.start() }
         link = l
         val ok = l.start()
         Live.update { it.copy(sdkReady = ok) }
@@ -167,6 +182,7 @@ class CareService : Service() {
         main.removeCallbacks(ticker)
         car?.stop()
         link?.stop()
+        navi?.stop()
         speaker?.shutdown()
         instance = null
         Live.update { it.copy(serviceRunning = false, sdkReady = false, signalsConnected = false) }

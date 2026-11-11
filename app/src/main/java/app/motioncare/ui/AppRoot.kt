@@ -1,6 +1,8 @@
-// ver 1.2.0 | 2026-11-05 22:50
+// ver 1.4.0 | 2026-11-11 19:05
 package app.motioncare.ui
 
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -121,6 +123,22 @@ fun AppRoot(needsPermission: Boolean, onRequestPermission: () -> Unit) {
                         1 -> RestScreen(live)
                         2 -> HistoryScreen(live)
                         else -> CheckScreen(live)
+                    }
+                    // spoken guidance is also written on the screen: it is the only guidance when TTS is not ready
+                    // (the home screen shows it in place of its title)
+                    if (live.caption.isNotBlank() && tab != 0) {
+                        Box(
+                            Modifier
+                                .align(Alignment.TopCenter)
+                                .fillMaxWidth()
+                                .height(u(104))
+                                .background(Palette.Primary, RoundedCornerShape(u(24)))
+                                .semantics { liveRegion = LiveRegionMode.Polite }
+                                .padding(horizontal = u(32)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Txt(live.caption, 40, Palette.OnPrimary, FontWeight.Medium, maxLines = 1)
+                        }
                     }
                     if (needsPermission) {
                         Row(

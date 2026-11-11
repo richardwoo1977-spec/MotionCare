@@ -1,4 +1,4 @@
-// ver 1.1.0 | 2026-11-05 19:30
+// ver 1.2.0 | 2026-11-11 18:30
 package app.motioncare.core
 
 enum class Gear { PARK, REVERSE, NEUTRAL, DRIVE, UNKNOWN }
@@ -46,7 +46,8 @@ data class Desired(
     val faceDirection: Boolean = false,
     val powerOn: Boolean = false,
     val windowOpen: Boolean = false,
-    val target: Seat? = null
+    /** the seats to look after; empty = the whole cabin */
+    val targets: Set<Seat> = emptySet()
 ) {
     val isIdle: Boolean get() = !recircOff && fan == FanWant.NONE && !faceDirection && !powerOn && !windowOpen
 }
@@ -64,9 +65,23 @@ data class RestStop(
 data class HistoryEvent(
     val epochMs: Long,
     val elapsedMin: Int,
+    /** the seats, as [SeatKeys.join] writes them; empty = no seat known (whole cabin) */
     val seatKey: String,
     val destination: String
 )
+
+/** Several seats in one text field (history), and the words for them. */
+object SeatKeys {
+    fun join(seats: Set<Seat>): String = Seat.entries.filter { it in seats }.joinToString("+") { it.key }
+
+    fun split(text: String): Set<String> = text.split('+').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+
+    /** e.g. "2열 전체", "조수석 · 2열 오른쪽"; "자리 모름" when none. Old single keys read the same way. */
+    fun label(text: String): String {
+        val keys = split(text)
+        return if (keys.isEmpty()) "자리 모름" else SeatSummary.text(keys).replace("1열 오른쪽", "조수석")
+    }
+}
 
 enum class Level { OK, WARN, BAD, NONE }
 
