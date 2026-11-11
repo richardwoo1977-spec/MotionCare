@@ -1,0 +1,53 @@
+{
+  "packageName": "app.motioncare",
+  "appDescription": "A passenger motion-sickness care app that adjusts the cabin air for the seat of the affected passenger and suggests a rest stop.",
+  "invokeWord": "차멀미 케어",
+  "version": "0.2.0",
+  "actionCalls": [
+    {
+      "type": "function",
+      "function": {
+        "name": "MOTION_SICKNESS_RELIEF",
+        "description": "Start relief for a passenger who feels motion sick by raising the air flow to the maximum and suggesting a rest stop. Pass the seat only when the user names where the affected passenger sits.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "seat": {
+              "type": "string",
+              "enum": ["FRONT_PASSENGER", "SECOND_ROW_DRIVER_SIDE", "SECOND_ROW_CENTER", "SECOND_ROW_PASSENGER_SIDE", "THIRD_ROW_DRIVER_SIDE", "THIRD_ROW_CENTER", "THIRD_ROW_PASSENGER_SIDE"],
+              "description": "The seat of the affected passenger: FRONT_PASSENGER is next to the driver, and the SECOND_ROW and THIRD_ROW values name the row counted from the front and the side as seen from the driver seat. Leave it out when the user does not say."
+            }
+          },
+          "required": []
+        },
+        "component": "service"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "MOTION_SICKNESS_RECOVERED",
+        "description": "End the relief when the passenger feels better and return the cabin air to its previous settings.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        },
+        "component": "service"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "OPEN_MOTIONCARE",
+        "description": "Open the motion-sickness care app on the screen.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        },
+        "component": "activity"
+      }
+    }
+  ]
+}

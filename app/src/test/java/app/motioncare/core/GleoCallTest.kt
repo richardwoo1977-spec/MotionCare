@@ -1,0 +1,189 @@
+// ver 1.2.0 | 2026-11-06 16:40
+package app.motioncare.core
+
+import java.io.File
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class GleoCallTest {
+
+    // the schema file is read from the module folder; Gradle runs unit tests there
+    private val schemaFile = File("src/main/assets/schema.json")
+    private val manifestFile = File("src/main/AndroidManifest.xml")
+
+    @Test
+    fun each_call_is_found_by_its_action_name() {
+        assertEquals(GleoCall.RELIEF, GleoCall.fromAction("MOTION_SICKNESS_RELIEF"))
+        assertEquals(GleoCall.RECOVERED, GleoCall.fromAction("MOTION_SICKNESS_RECOVERED"))
+        assertEquals(GleoCall.OPEN_APP, GleoCall.fromAction("OPEN_MOTIONCARE"))
+    }
+
+    @Test
+    fun each_call_is_also_found_with_the_package_name_in_front() {
+        assertEquals(GleoCall.RELIEF, GleoCall.fromAction("app.motioncare.MOTION_SICKNESS_RELIEF"))
+        assertEquals(GleoCall.RECOVERED, GleoCall.fromAction("app.motioncare.MOTION_SICKNESS_RECOVERED"))
+        assertEquals(GleoCall.OPEN_APP, GleoCall.fromAction("app.motioncare.OPEN_MOTIONCARE"))
+    }
+
+    @Test
+    fun a_prefix_from_another_package_is_ignored() {
+        assertNull(GleoCall.fromAction("other.app.MOTION_SICKNESS_RELIEF"))
+        assertNull(GleoCall.fromAction("app.motioncare."))
+    }
+
+    @Test
+    fun unknown_or_missing_actions_are_ignored() {
+        assertNull(GleoCall.fromAction("ADD_REMINDER"))
+        assertNull(GleoCall.fromAction(""))
+        assertNull(GleoCall.fromAction(null))
+    }
+
+    @Test
+    fun action_names_are_upper_snake_case_and_unique() {
+        val names = GleoCall.values().map { it.action }
+        assertEquals(names.size, names.toSet().size)
+        names.forEach { assertTrue(it, Regex("[A-Z]+(_[A-Z]+)*").matches(it)) }
+    }
+
+    @Test
+    fun at_most_three_voice_calls() {
+        assertTrue(GleoCall.values().size <= 3)
+    }
+
+    @Test
+    fun only_the_open_call_needs_a_screen() {
+        assertFalse(GleoCall.RELIEF.needsScreen)
+        assertFalse(GleoCall.RECOVERED.needsScreen)
+        assertTrue(GleoCall.OPEN_APP.needsScreen)
+    }
+
+    // ---- the schema file the Gleo AI app reads must match the code ----
+
+    private fun schema(): String {
+        assertTrue("schema.json is missing: ${schemaFile.absolutePath}", schemaFile.exists())
+        return schemaFile.readText()
+    }
+
+    @Test
+    fun schema_names_exactly_the_calls_in_the_code() {
+        val inFile = Regex("\"name\"\\s*:\\s*\"([A-Z_]+)\"").findAll(schema()).map { it.groupValues[1] }.toList()
+        assertEquals(GleoCall.values().map { it.action }.sorted(), inFile.sorted())
+    }
+
+    @Test
+    fun schema_components_match_needsScreen() {
+        val text = schema()
+        GleoCall.values().forEach { call ->
+            val at = text.indexOf("\"name\": \"${call.action}\"")
+            assertTrue("no entry for ${call.action}", at >= 0)
+            val tail = text.substring(at)
+            val comp = Regex("\"component\"\\s*:\\s*\"(\\w+)\"").find(tail)!!.groupValues[1]
+            assertEquals(call.action, if (call.needsScreen) "activity" else "service", comp)
+        }
+    }
+
+    @Test
+    fun schema_top_level_fields_are_present_and_the_package_matches() {
+        val text = schema()
+        assertTrue(text.contains("\"packageName\": \"app.motioncare\""))
+        listOf("appDescription", "invokeWord", "version", "actionCalls").forEach {
+            assertTrue(it, text.contains("\"$it\""))
+        }
+    }
+
+    @Test
+    fun schema_text_is_english_for_every_description() {
+        val descriptions = Regex("\"(?:app)?[dD]escription\"\\s*:\\s*\"([^\"]*)\"").findAll(schema()).map { it.groupValues[1] }.toList()
+        assertTrue(descriptions.size >= 4) // app + three functions
+        descriptions.forEach { d -> assertTrue(d, d.all { it.code < 128 }) }
+    }
+
+    @Test
+    fun schema_has_no_example_phrases_in_descriptions() {
+        val descriptions = Regex("\"(?:app)?[dD]escription\"\\s*:\\s*\"([^\"]*)\"").findAll(schema()).map { it.groupValues[1].lowercase() }.toList()
+        descriptions.forEach { d ->
+            assertTrue(d, !d.contains("for example"))
+            assertTrue(d, !d.contains("e.g."))
+            assertTrue(d, !d.contains("such as"))
+        }
+    }
+
+    @Test
+    fun manifest_lists_an_action_for_every_call() {
+        assertTrue(manifestFile.exists())
+        val text = manifestFile.readText()
+        GleoCall.values().forEach { call ->
+            assertTrue(call.action, text.contains("<action android:name=\"${call.action}\""))
+            val prefixed = GleoCall.PACKAGE_PREFIX + call.action
+            assertTrue(prefixed, text.contains("<action android:name=\"$prefixed\""))
+        }
+    }
+
+    @Test
+    fun manifest_lists_the_boot_permission_and_receiver() {
+        val text = manifestFile.readText()
+        assertTrue(text.contains("android.permission.RECEIVE_BOOT_COMPLETED"))
+        assertTrue(text.contains("android.intent.action.BOOT_COMPLETED"))
+    }
+
+    // ---- the seat word of the relief call ----
+
+    @Test
+    fun every_seat_value_names_its_seat() {
+        assertEquals(Seat.ROW_1_RIGHT, GleoSeat.fromValue("FRONT_PASSENGER"))
+        assertEquals(Seat.ROW_2_LEFT, GleoSeat.fromValue("SECOND_ROW_DRIVER_SIDE"))
+        assertEquals(Seat.ROW_2_CENTER, GleoSeat.fromValue("SECOND_ROW_CENTER"))
+        assertEquals(Seat.ROW_2_RIGHT, GleoSeat.fromValue("SECOND_ROW_PASSENGER_SIDE"))
+        assertEquals(Seat.ROW_3_LEFT, GleoSeat.fromValue("THIRD_ROW_DRIVER_SIDE"))
+        assertEquals(Seat.ROW_3_CENTER, GleoSeat.fromValue("THIRD_ROW_CENTER"))
+        assertEquals(Seat.ROW_3_RIGHT, GleoSeat.fromValue("THIRD_ROW_PASSENGER_SIDE"))
+    }
+
+    @Test
+    fun every_seat_but_the_drivers_can_be_named() {
+        val named = GleoSeat.values.values.toSet()
+        Seat.entries.filter { it != Seat.ROW_1_LEFT }.forEach { assertTrue(it.key, it in named) }
+        assertFalse(Seat.ROW_1_LEFT in named)
+    }
+
+    @Test
+    fun an_unknown_or_missing_seat_value_is_ignored() {
+        assertNull(GleoSeat.fromValue("DRIVER"))
+        assertNull(GleoSeat.fromValue(""))
+        assertNull(GleoSeat.fromValue(null))
+    }
+
+    @Test
+    fun the_seat_is_read_from_plain_and_escaped_parameter_text() {
+        assertEquals(Seat.ROW_3_CENTER, GleoSeat.fromParamText("{\"seat\":\"THIRD_ROW_CENTER\"}"))
+        assertEquals(Seat.ROW_3_CENTER, GleoSeat.fromParamText("{ \"seat\" : \"third_row_center\" }"))
+        assertEquals(Seat.ROW_1_RIGHT, GleoSeat.fromParamText("{\\\"seat\\\":\\\"FRONT_PASSENGER\\\"}"))
+    }
+
+    @Test
+    fun parameter_text_without_a_known_seat_gives_nothing() {
+        assertNull(GleoSeat.fromParamText("{}"))
+        assertNull(GleoSeat.fromParamText(""))
+        assertNull(GleoSeat.fromParamText(null))
+        assertNull(GleoSeat.fromParamText("{\"seat\":\"BACK\"}"))
+        assertNull(GleoSeat.fromParamText("{\"title\":\"seat\"}"))
+    }
+
+    @Test
+    fun schema_seat_values_are_exactly_the_ones_in_the_code() {
+        val enumText = Regex("\"enum\"\\s*:\\s*\\[([^\\]]*)\\]").find(schema())!!.groupValues[1]
+        val inFile = Regex("\"([A-Z_]+)\"").findAll(enumText).map { it.groupValues[1] }.toSet()
+        assertEquals(GleoSeat.values.keys, inFile)
+    }
+
+    @Test
+    fun the_seat_is_optional_in_the_schema() {
+        val at = schema().indexOf("\"name\": \"MOTION_SICKNESS_RELIEF\"")
+        val block = schema().substring(at, schema().indexOf("\"name\": \"MOTION_SICKNESS_RECOVERED\""))
+        assertTrue(block.contains("\"seat\""))
+        assertTrue(block.contains("\"required\": []"))
+    }
+}
