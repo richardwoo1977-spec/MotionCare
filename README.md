@@ -1,4 +1,4 @@
-<!-- ver 1.3.0 | 2026-11-12 14:25 -->
+<!-- ver 1.4.0 | 2026-11-12 15:10 -->
 # 차멀미 케어 (MotionCare)
 
 멀미하는 동승자를 말 한마디로 돌보는 Pleos Connect 차량용 앱입니다. 멀미하는 자리 쪽에 바람을 보내고, 쉬어 갈 곳을 내비 경유지로 넣습니다.
@@ -66,6 +66,10 @@ Pleos SDK(Vehicle, NaviHelper, TextToSpeech)는 `settings.gradle.kts`에 적힌 
 - **쉬어 갈 곳:** 내비가 알려 주는 현재 위치에서 가까운 고속도로 휴게소(한국도로공사 공공데이터, 기준일 2026-09-17, 215곳)와 졸음쉼터(기준일 2026-02-25, 253곳, 모두 고속국도)를 찾습니다. 직선거리로 가까운 6곳의 도로 기준 시간을 NaviHelper `requestTrip`으로 물어, 빠른 3곳을 보여 줍니다. 30분이 넘는 곳에는 "멀어요"를 붙이고, 100km 안에 없으면 없다고 알립니다. 경로가 있으면 경유지로 넣고(최대 2곳), 경로가 없으면 그곳을 목적지로 안내합니다. 국도 쉼터는 이번 출품 범위에서 뺐습니다.
 - **에뮬레이터의 위치 한계:** Pleos Connect Emulator 2.1.0의 내비 현재 위치는 성남시 수정구 시흥동에 고정되어 있습니다. Extended Controls의 Location(Set Location), Virtual Console의 기어·속도 설정으로는 내비 위치가 바뀌지 않았고, 내비 메뉴(안내 화면, 설정, 경로 설정)에서 모의 주행 기능도 찾지 못했습니다(2026-11-12 확인, Pleos 측에 문의함). 그래서 차가 움직이면 목록을 다시 찾는 동작(1km 이동 또는 2분마다)은 에뮬레이터에서 보여 줄 수 없습니다. 이 부분은 단위 시험(`NearbyPlanTest`, `RestPlanTest`)으로 확인했고, 고정 위치에서는 목록 표시, 경유지 넣기·바꾸기·빼기, 목적지 안내·바꾸기·끝내기, 음성 명령, 주행 중(D) 화면 표시를 에뮬레이터에서 확인했습니다.
 - **권한:** `AndroidManifest.xml`에 차량 권한(CAR_SPEED, CAR_POWERTRAIN, pleos.car.permission.CAR_SEATS · CAR_CLIMATE · CONTROL_CAR_CLIMATE · CAR_WINDOWS · CONTROL_CAR_WINDOWS 등), 내비 권한(NAVI_ROUTE, NAVI_ROUTE_SEARCH), 음성 권한(TTS_SERVICE)을 선언했습니다.
+
+## 시연 영상
+
+`docs/demo_MotionCare.mp4` (3분 20초, 1920×1080). Pleos Connect Emulator 2.1.0에서 앱 2.2.0을 실제로 녹화한 장면을 이어 붙였습니다. 1부는 경로가 없을 때 화면으로 쓰는 흐름, 2부는 경로가 있을 때 음성 호출과 경유지 넣기입니다. 글레오가 앱 이름을 알아듣지 못한 시도 1회는 편집으로 뺐고, 영상 끝에 그 사실을 적었습니다.
 
 ## APK 위치
 
