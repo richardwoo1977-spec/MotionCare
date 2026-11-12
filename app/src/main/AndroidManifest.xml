@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- ver 1.5.0 | 2026-11-11 22:25 -->
+<!-- ver 1.6.0 | 2026-11-12 11:25 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Android Automotive car properties: gear (normal) and speed (dangerous, asked at runtime) -->
@@ -44,6 +44,10 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- usable while driving (Android Automotive driver distraction): the screens are large text and one touch -->
+            <meta-data
+                android:name="distractionOptimized"
+                android:value="true" />
         </activity>
 
         <!-- starts the care service when the car has booted -->
