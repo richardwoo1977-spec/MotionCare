@@ -1,4 +1,4 @@
-<!-- ver 1.2.0 | 2026-11-12 12:15 -->
+<!-- ver 1.3.0 | 2026-11-12 14:25 -->
 # 차멀미 케어 (MotionCare)
 
 멀미하는 동승자를 말 한마디로 돌보는 Pleos Connect 차량용 앱입니다. 멀미하는 자리 쪽에 바람을 보내고, 쉬어 갈 곳을 내비 경유지로 넣습니다.
@@ -52,6 +52,8 @@ Pleos SDK(Vehicle, NaviHelper, TextToSpeech)는 `settings.gradle.kts`에 적힌 
 | 항목 | 값 |
 |---|---|
 | 기기 | Pleos Connect Emulator 2.1.0 (Android Automotive, API 34) |
+| 화면 규격 | 2560×1440, 160 dpi (`adb shell wm size`, `adb shell wm density`로 확인) |
+| 앱 버전 | 2.2.0 (versionCode 9) |
 | 빌드 | Kotlin 2.0, Jetpack Compose, compileSdk 35, minSdk 29, JDK 17 |
 | 차량 SDK | Pleos Vehicle SDK 2.3.2 |
 | 내비 | Pleos NaviHelper 3.0.5 (현재 위치, 도로 기준 시간, 경유지 추가·빼기, 목적지 안내·끝내기) |
