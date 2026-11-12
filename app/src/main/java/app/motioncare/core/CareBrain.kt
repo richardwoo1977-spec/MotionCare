@@ -1,4 +1,4 @@
-// ver 1.14.0 | 2026-11-12 11:20
+// ver 1.15.0 | 2026-11-12 12:15
 package app.motioncare.core
 
 import app.motioncare.data.DemoNavi
@@ -78,6 +78,9 @@ class CareBrain(
 
     /** the place this app set as the navigation's destination (when there was no route) */
     private var destRest: RestStop? = null
+
+    /** [destRest] was found by the destination's name (after the app started again), not set by this app's request */
+    private var destByName = false
 
     /** what the rest screen shows about the last change that failed, until [workNoteUntilMs] */
     private var workNote: RestWork? = null
@@ -341,6 +344,8 @@ class CareBrain(
     fun onNearby(state: NearbyState, stops: List<RestStop>) {
         nearbyState = state
         if (state == NearbyState.READY || state == NearbyState.NONE) nearby = stops
+        // a destination found by name: the same place in the list has the road time (and the side of the road)
+        if (destByName && job == null) NearbyPlan.destinationStop(naviDestination, nearby, emptyList(), null, null)?.let { destRest = it }
         refresh()
     }
 
@@ -362,7 +367,19 @@ class CareBrain(
         // the advance rest offer is made once per destination (this is called again on every refresh)
         if (now != naviDestination && now != null) offered = false
         naviDestination = now
-        if (now == null && job == null) destRest = null
+        if (now == null && job == null) {
+            destRest = null
+            destByName = false
+        }
+        // after the app starts again it no longer knows it set the destination: a destination with exactly the
+        // name this app gives the navigation ("안성휴게소", "죽전 졸음쉼터") is taken as set by this app
+        if (now != null && job == null && !destIsOurs()) {
+            val found = NearbyPlan.destinationStop(now, nearby, DemoNavi.catalogAreas(), locLat, locLon)
+            if (found != null) {
+                destRest = found
+                destByName = true
+            }
+        }
         checkDestJob()
         refresh()
     }
@@ -466,6 +483,7 @@ class CareBrain(
             JobMode.ROUTE -> if (naviDestination?.let { RestPlan.same(it, j.stop.name) } == true) {
                 job = null
                 destRest = j.stop
+                destByName = false
                 waypoints = emptyList()
                 pickedRest = null
                 say("${j.stop.label}로 안내를 시작했어요", 6000)
@@ -473,6 +491,7 @@ class CareBrain(
             JobMode.CANCEL -> if (naviDestination == null) {
                 job = null
                 destRest = null
+                destByName = false
                 pickedRest = null
                 say("${j.stop.label} 안내를 끝냈어요", 6000)
             }

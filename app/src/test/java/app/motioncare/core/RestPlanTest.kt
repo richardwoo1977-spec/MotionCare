@@ -1,4 +1,4 @@
-// ver 1.3.0 | 2026-11-12 12:00
+// ver 1.4.0 | 2026-11-12 12:15
 package app.motioncare.core
 
 import app.motioncare.data.DemoNavi
@@ -469,5 +469,47 @@ class RestPlanTest {
     fun distance_between_two_points() {
         val km = Geo.km(37.5665, 126.9780, 35.1796, 129.0756)  // 서울시청 - 부산시청
         assertTrue(km in 320.0..330.0)
+    }
+
+    // ---- after the app starts again ----
+
+    @Test
+    fun after_a_restart_a_destination_named_like_one_of_ours_is_ours_and_can_be_ended() {
+        val b = brain()  // a new brain: it has not set any destination itself
+        b.onNaviDestination(s[1].label)  // "죽전 졸음쉼터", as this app names it for the navigation
+        assertEquals(s[1].id, Live.state.value.destRestId)
+        cmds.clear()
+        assertEquals(RestOutcome.DONE, b.restRemove(s[1].id))
+        assertEquals(listOf<NaviCmd>(NaviCmd.Cancel), cmds)
+        b.onNaviDestination(null)
+        assertNull(Live.state.value.destRestId)
+    }
+
+    @Test
+    fun after_a_restart_other_destinations_are_not_ours() {
+        val b = brain()
+        b.onNaviDestination("부산역")
+        assertNull(Live.state.value.destRestId)
+        b.onNaviDestination("안성")  // a part of the name only: not a name this app gives
+        assertNull(Live.state.value.destRestId)
+        // ending the guidance is never sent for a destination that is not ours
+        cmds.clear()
+        b.restRemove(s[0].id)
+        assertTrue(cmds.none { it == NaviCmd.Cancel })
+    }
+
+    @Test
+    fun after_a_restart_a_place_not_in_the_list_is_found_in_the_file_on_the_nearer_side() {
+        val north = RestArea("서산", "서해안선", "상행", 37.0, 126.5, toilet = true, nursing = false, kids = false, asOf = "2026-09-17")
+        val south = RestArea("서산", "서해안선", "하행", 36.0, 126.5, toilet = true, nursing = false, kids = false, asOf = "2026-09-17")
+        DemoNavi.setCatalog(listOf(north, south))
+        try {
+            val b = brain()
+            b.onLocation("충청남도 서산시", 36.1, 126.5)
+            b.onNaviDestination("서산 휴게소")
+            assertEquals(south.id, Live.state.value.destRestId)
+        } finally {
+            DemoNavi.setCatalog(emptyList())
+        }
     }
 }

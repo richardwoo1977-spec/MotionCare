@@ -1,4 +1,4 @@
-// ver 1.0.0 | 2026-11-12 11:10
+// ver 1.1.0 | 2026-11-12 12:15
 package app.motioncare.core
 
 import kotlin.math.ceil
@@ -62,6 +62,29 @@ object NearbyPlan {
         kind = a.kind,
         direction = directionText(a)
     )
+
+    /** "안성휴게소", "죽전 졸음쉼터": the name this app gives the navigation (the same as [RestStop.label]). */
+    fun label(a: RestArea): String =
+        if (a.kind == PlaceKind.REST_AREA) "${a.name}휴게소" else "${a.name} 졸음쉼터"
+
+    /**
+     * The place behind a navigation destination [name], when the name is exactly one this app gives the navigation
+     * ("안성휴게소", "죽전 졸음쉼터"; spaces do not count). Used after the app starts again, when it no longer
+     * knows it set the destination. A place in [nearby] comes first (it has the road time); otherwise the place in
+     * [all] nearest to [lat]/[lon] (one name can stand on both sides of a road), with the straight-line distance and
+     * no road time (etaMin 0). null = not a place this app would have set. A partial name ("안성") is not taken.
+     */
+    fun destinationStop(name: String?, nearby: List<RestStop>, all: List<RestArea>, lat: Double?, lon: Double?): RestStop? {
+        val key = name?.let { squash(it) }?.takeIf { it.isNotEmpty() } ?: return null
+        nearby.firstOrNull { squash(it.label) == key }?.let { return it }
+        val same = all.filter { squash(label(it)) == key }
+        val a = if (lat != null && lon != null) same.minByOrNull { Geo.km(lat, lon, it.lat, it.lon) } else same.firstOrNull()
+        a ?: return null
+        val km = if (lat != null && lon != null) Geo.km(lat, lon, a.lat, a.lon) else 0.0
+        return stopOf(a, Trip((km * 1000).toInt(), 0)).copy(etaMin = 0)
+    }
+
+    private fun squash(s: String): String = s.replace(" ", "").trim()
 
     /**
      * Short words for the side of the road: "순천기점 + 천안종점" -> "천안 방향"; the rest-area file's

@@ -1,4 +1,4 @@
-// ver 1.0.0 | 2026-11-12 12:05
+// ver 1.1.0 | 2026-11-12 12:15
 package app.motioncare.core
 
 import java.io.File
@@ -92,5 +92,37 @@ class NearbyPlanTest {
         assertTrue(list.none { it.name.isBlank() })
         // route, name and direction tell every shelter apart (both sides of a road are two places)
         assertEquals(253, list.map { it.id }.toSet().size)
+    }
+
+    @Test
+    fun a_destination_is_ours_only_by_the_exact_name_this_app_gives() {
+        val all = listOf(
+            area("안성", 37.0, 127.2, dir = "상행"),
+            area("안성", 36.9, 127.2, dir = "하행"),
+            area("죽전", 37.33, 127.1, dir = "서울기점 + 부산종점", kind = PlaceKind.SHELTER)
+        )
+        assertEquals("죽전", NearbyPlan.destinationStop("죽전 졸음쉼터", emptyList(), all, lat, lon)?.name)
+        assertEquals("죽전", NearbyPlan.destinationStop("죽전졸음쉼터", emptyList(), all, lat, lon)?.name)
+        // nearer side of the road
+        assertEquals("경부선|안성|상행", NearbyPlan.destinationStop("안성휴게소", emptyList(), all, lat, lon)?.id)
+        assertEquals(null, NearbyPlan.destinationStop("안성", emptyList(), all, lat, lon))
+        assertEquals(null, NearbyPlan.destinationStop("죽전휴게소", emptyList(), all, lat, lon))
+        assertEquals(null, NearbyPlan.destinationStop("서울역", emptyList(), all, lat, lon))
+        assertEquals(null, NearbyPlan.destinationStop(null, emptyList(), all, lat, lon))
+        assertEquals(null, NearbyPlan.destinationStop(" ", emptyList(), all, lat, lon))
+    }
+
+    @Test
+    fun a_destination_in_the_nearby_list_comes_from_the_list() {
+        val listed = RestStop("경부선|안성|하행", "안성", 12.0, 9, toilet = true, nursing = false, kids = false)
+        val all = listOf(area("안성", 37.0, 127.2, dir = "상행"), area("안성", 36.9, 127.2, dir = "하행"))
+        assertEquals(listed, NearbyPlan.destinationStop("안성휴게소", listOf(listed), all, lat, lon))
+    }
+
+    @Test
+    fun the_label_matches_the_stop_label() {
+        val a = area("죽전", 37.33, 127.1, kind = PlaceKind.SHELTER)
+        assertEquals("죽전 졸음쉼터", NearbyPlan.label(a))
+        assertEquals(NearbyPlan.stopOf(a, Trip(1000, 60)).label, NearbyPlan.label(a))
     }
 }

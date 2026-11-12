@@ -1,4 +1,4 @@
-<!-- ver 1.1.1 | 2026-11-11 20:40 -->
+<!-- ver 1.2.0 | 2026-11-12 12:15 -->
 # 차멀미 케어 (MotionCare)
 
 멀미하는 동승자를 말 한마디로 돌보는 Pleos Connect 차량용 앱입니다. 멀미하는 자리 쪽에 바람을 보내고, 쉬어 갈 곳을 내비 경유지로 넣습니다.
@@ -54,14 +54,15 @@ Pleos SDK(Vehicle, NaviHelper, TextToSpeech)는 `settings.gradle.kts`에 적힌 
 | 기기 | Pleos Connect Emulator 2.1.0 (Android Automotive, API 34) |
 | 빌드 | Kotlin 2.0, Jetpack Compose, compileSdk 35, minSdk 29, JDK 17 |
 | 차량 SDK | Pleos Vehicle SDK 2.3.2 |
-| 내비 | Pleos NaviHelper 3.0.5 (경유지 추가) |
+| 내비 | Pleos NaviHelper 3.0.5 (현재 위치, 도로 기준 시간, 경유지 추가·빼기, 목적지 안내·끝내기) |
 | 음성 안내 | Pleos TextToSpeech 3.3.1 (on-device) |
 | 음성 호출 | Gleo AI App Schema `app/src/main/assets/schema.json` (version 0.3.1) |
 
 - **음성 호출:** 에뮬레이터의 Extended Controls에서 호스트 마이크를 켜야 합니다. Gleo가 말을 어느 앱으로 보낼지는 Gleo가 판단합니다. 앱 이름("차멀미 케어")을 함께 말하면 가장 확실합니다.
 - **좌석 시험:** 에뮬레이터가 보고하는 좌석 착석 값으로 동작합니다. 개발 시험은 조수석과 2열 두 자리에 사람이 앉은 상태에서 했습니다.
 - **공조 구역:** 에뮬레이터는 공조 전원과 내기순환을 차 전체 한 구역(5자리)으로, 풍량을 앞줄 한 구역으로 보고합니다. 좌석별 공조는 차종에 따라 다르며, 앱은 차가 알려 준 구역에 맞춰 적용합니다.
-- **위치와 휴게소:** 현재 위치는 시연용 가상 위치입니다. 휴게소 목록은 한국도로공사 공공데이터(기준일 2026-09-17, 215건)를 앱에 넣어 둔 것입니다. 경유지는 NaviHelper `addWaypoint`로 넣습니다. 에뮬레이터에서는 요청과 내비 화면 전환까지 확인했고, 목적지가 정해진 경로에 실제로 경유지가 들어가는지는 확인하지 않았습니다.
+- **쉬어 갈 곳:** 내비가 알려 주는 현재 위치에서 가까운 고속도로 휴게소(한국도로공사 공공데이터, 기준일 2026-09-17, 215곳)와 졸음쉼터(기준일 2026-02-25, 253곳, 모두 고속국도)를 찾습니다. 직선거리로 가까운 6곳의 도로 기준 시간을 NaviHelper `requestTrip`으로 물어, 빠른 3곳을 보여 줍니다. 30분이 넘는 곳에는 "멀어요"를 붙이고, 100km 안에 없으면 없다고 알립니다. 경로가 있으면 경유지로 넣고(최대 2곳), 경로가 없으면 그곳을 목적지로 안내합니다. 국도 쉼터는 이번 출품 범위에서 뺐습니다.
+- **에뮬레이터의 위치 한계:** Pleos Connect Emulator 2.1.0의 내비 현재 위치는 성남시 수정구 시흥동에 고정되어 있습니다. Extended Controls의 Location(Set Location), Virtual Console의 기어·속도 설정으로는 내비 위치가 바뀌지 않았고, 내비 메뉴(안내 화면, 설정, 경로 설정)에서 모의 주행 기능도 찾지 못했습니다(2026-11-12 확인, Pleos 측에 문의함). 그래서 차가 움직이면 목록을 다시 찾는 동작(1km 이동 또는 2분마다)은 에뮬레이터에서 보여 줄 수 없습니다. 이 부분은 단위 시험(`NearbyPlanTest`, `RestPlanTest`)으로 확인했고, 고정 위치에서는 목록 표시, 경유지 넣기·바꾸기·빼기, 목적지 안내·바꾸기·끝내기, 음성 명령, 주행 중(D) 화면 표시를 에뮬레이터에서 확인했습니다.
 - **권한:** `AndroidManifest.xml`에 차량 권한(CAR_SPEED, CAR_POWERTRAIN, pleos.car.permission.CAR_SEATS · CAR_CLIMATE · CONTROL_CAR_CLIMATE · CAR_WINDOWS · CONTROL_CAR_WINDOWS 등), 내비 권한(NAVI_ROUTE, NAVI_ROUTE_SEARCH), 음성 권한(TTS_SERVICE)을 선언했습니다.
 
 ## APK 위치
