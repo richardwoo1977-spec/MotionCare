@@ -1,4 +1,4 @@
-// ver 2.2.0 | 2026-11-12 11:55
+// ver 2.3.0 | 2026-11-12 12:25
 package app.motioncare.ui
 
 import androidx.compose.foundation.Canvas
@@ -104,7 +104,7 @@ private fun TitleRow(live: LiveState) {
                 modifier = Modifier.alignByBaseline(), maxLines = 1, spacing = -0.03f
             )
             Txt(
-                "말로 알려 주세요. 예: 뒷자리 모두 멀미 나요", 28, Palette.Sub, FontWeight.Normal,
+                "예: 글레오, 차멀미 케어 뒷자리 모두 멀미 나요", 28, Palette.Sub, FontWeight.Normal,
                 modifier = Modifier.alignByBaseline(), maxLines = 1
             )
         }
@@ -179,7 +179,7 @@ private fun RestCard(live: LiveState, height: Float, onOpen: () -> Unit) {
                 Txt(if (live.destRestId == stop.id) "안내 중이에요" else "경유지에 넣었어요", 30, Palette.Primary, FontWeight.Medium, maxLines = 1)
                 Txt(headline, headlineSize(headline, COL_W - 64f), Color.White, FontWeight.Medium, maxLines = 1, spacing = -0.02f)
                 Txt(
-                    if (live.destRestId == stop.id) "내비가 ${stop.label}로 안내해요" else "내비가 안내해요 · 경유지 ${live.waypoints.size}/2",
+                    if (live.destRestId == stop.id) "내비가 ${stop.label}로 안내해요" else "내비 경유지 ${live.waypoints.size}곳 (최대 2곳)",
                     28, Palette.Sub, maxLines = 1
                 )
             }
@@ -194,7 +194,17 @@ private fun RestCard(live: LiveState, height: Float, onOpen: () -> Unit) {
                 .padding(u(32))
         ) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                Txt("쉬어 갈 곳 · ${stop.kind.word}" + if (stop.far) " · 멀어요" else "", 30, Palette.Sub, maxLines = 1)
+                // one plain phrase: "가장 빠른 휴게소", "가장 빠른 졸음쉼터도 멀어요"
+                val fastest = live.nearby.firstOrNull()?.id == stop.id
+                val kindText = (if (fastest) "가장 빠른 " else "") + stop.kind.word
+                Txt(
+                    when {
+                        stop.far && fastest -> "${kindText}도 멀어요"
+                        stop.far -> "$kindText, 멀어요"
+                        else -> kindText
+                    },
+                    30, Palette.Sub, maxLines = 1
+                )
                 Txt(headline, headlineSize(headline, COL_W - 104f - 12f - 64f), Color.White, FontWeight.Medium, maxLines = 1, spacing = -0.02f)
                 Txt(
                     if (live.naviRouting && live.destRestId == null) "누르면 경유지로 넣어요" else "누르면 내비가 안내해요",

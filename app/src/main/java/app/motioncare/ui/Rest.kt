@@ -1,4 +1,4 @@
-// ver 2.0.0 | 2026-11-12 11:50
+// ver 2.1.1 | 2026-11-12 12:35
 package app.motioncare.ui
 
 import androidx.compose.foundation.Canvas
@@ -39,7 +39,6 @@ import app.motioncare.core.Policy
 import app.motioncare.core.RestDisplay
 import app.motioncare.core.RestPlan
 import app.motioncare.core.RestStop
-import app.motioncare.data.DemoNavi
 import app.motioncare.data.LiveState
 import app.motioncare.service.CareService
 
@@ -52,7 +51,6 @@ import app.motioncare.service.CareService
 
 private val Ink = Color(0xFF04201A)
 private val QuietCard = Color(0x0FFFFFFF)          // white at 6 %
-private val Faint = Color(0x73F2F6F7)              // rgba(242,246,247,.45)
 private val Off = Color(0x52F2F6F7)                // rgba(242,246,247,.32)
 
 /** "평택" -> "평택으로", "고삼호수" -> "고삼호수로" (no final consonant, or ㄹ, takes 로). */
@@ -81,7 +79,7 @@ fun RestScreen(live: LiveState) {
         Row(Modifier.height(u(111)), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(u(28))) {
             Txt("쉬어 갈 곳", 60, Color.White, FontWeight.Medium, maxLines = 1, spacing = -0.03f, modifier = Modifier.alignByBaseline())
             Txt(
-                (if (live.destinationFromNavi) "목적지 $dest" else "내비 목적지 없음") + " · 가까운 고속도로 쉼터 · 시간은 내비 도로 기준",
+                if (live.destinationFromNavi) "목적지 $dest" else "내비 목적지 없음",
                 28, Palette.Sub, maxLines = 1, modifier = Modifier.alignByBaseline()
             )
         }
@@ -101,18 +99,20 @@ fun RestScreen(live: LiveState) {
             stops.forEachIndexed { i, st ->
                 val onRoute = live.naviRouting &&
                     (ours.any { it.id == st.id } || live.naviWaypoints?.any { RestPlan.same(it, st.name) } == true)
-                RestCard(st, i, onRoute, st.id == destId, st.id == pickedId, Modifier.weight(1f))
+                RestCard(st, i, onRoute, st.id == destId, st.id == pickedId, live.pickedRest == null, Modifier.weight(1f))
             }
             repeat(3 - stops.size) { Spacer(Modifier.weight(1f)) }
         }
+        // a change the navigation did not take: what happened, then what to do
         val note = live.restWork?.takeIf { it.failed }
-        if (note != null) Txt(
-            "${note.title} · ${note.line}", 34, Color.White, FontWeight.Medium, maxLines = 1, ellipsis = true,
-            modifier = Modifier.offset(u(0), u(736))
-        ) else Txt(
-            "카드를 눌러 고른 뒤 아래 버튼을 누르세요 · 휴게소 ${DemoNavi.restAreaCount}곳 · 졸음쉼터 ${DemoNavi.shelterCount}곳(한국도로공사)",
-            26, Faint, maxLines = 1, modifier = Modifier.offset(u(0), u(740))
-        )
+        if (note != null) Row(
+            Modifier.offset(u(0), u(736)).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(u(20))
+        ) {
+            Txt(note.title, 34, Color.White, FontWeight.Medium, maxLines = 1)
+            Txt(note.line, 34, Palette.Sub, maxLines = 1, ellipsis = true, modifier = Modifier.weight(1f, fill = false))
+        }
         Row(
             Modifier.align(Alignment.BottomStart).fillMaxWidth().height(u(200)),
             horizontalArrangement = Arrangement.spacedBy(u(16))
@@ -134,7 +134,7 @@ private fun GuideButtons(live: LiveState, stops: List<RestStop>, picked: RestSto
     when {
         picked == null && destId != null -> ActionButton(
             "${withRo(destStop?.name ?: "쉼터")} 가고 있어요",
-            "출발 → ${destStop?.label ?: "쉼터"} · 다른 곳을 고르면 바꿀 수 있어요", Kind.STATUS, modifier
+            "출발 → ${destStop?.label ?: "쉼터"}", Kind.STATUS, modifier
         ) {}
         picked == null -> ActionButton("카드를 눌러 고르세요", "고른 쉼터로 내비가 안내해요", Kind.STATUS, modifier) {}
         picked.id == destId -> ActionButton(
@@ -144,7 +144,7 @@ private fun GuideButtons(live: LiveState, stops: List<RestStop>, picked: RestSto
             "${withRo(picked.name)} 바꾸기", "출발 → ${picked.label}", Kind.PRIMARY, modifier
         ) { CareService.run { it.restAdd(picked.id) } }
         else -> ActionButton(
-            "${withRo(picked.name)} 안내", "출발 → ${picked.label} · 약 ${picked.etaMin}분", Kind.PRIMARY, modifier
+            "${withRo(picked.name)} 안내", "출발 → ${picked.label}", Kind.PRIMARY, modifier
         ) { CareService.run { it.restAdd(picked.id) } }
     }
 }
@@ -158,7 +158,7 @@ private fun WaypointButtons(picked: RestStop?, ours: List<RestStop>, route: List
         fun line(names: List<String>) = (listOf("출발") + names + dest).joinToString(" → ")
         when {
             picked == null && ours.isNotEmpty() -> ActionButton(
-                "${ours.last().name}에 들렀다 가요", line(route) + " · 다른 곳을 고르면 바꿀 수 있어요",
+                "${ours.last().name}에 들렀다 가요", line(route),
                 Kind.STATUS, Modifier.weight(1f)
             ) {}
             picked == null -> ActionButton("카드를 눌러 고르세요", line(route), Kind.STATUS, Modifier.weight(1f)) {}
@@ -174,7 +174,7 @@ private fun WaypointButtons(picked: RestStop?, ours: List<RestStop>, route: List
                 ActionButton(
                     "${withRo(picked.name)} 바꾸기",
                     if (route.size == ours.size) line(route.map { if (RestPlan.same(it, old.name)) picked.label else it })
-                    else "${old.name} 대신 ${picked.name} · 다른 경유지는 그대로",
+                    else "${old.name} 대신 ${picked.name}, 다른 경유지는 그대로",
                     Kind.PRIMARY, Modifier.weight(1f)
                 ) { CareService.run { it.restReplace(picked.id) } }
                 if (full) ActionButton("경유지가 꽉 찼어요", "내비 경유지는 2개까지", Kind.OFF, Modifier.weight(1f)) {}
@@ -186,8 +186,9 @@ private fun WaypointButtons(picked: RestStop?, ours: List<RestStop>, route: List
     }
 }
 
+/** [auto] = nobody picked a card: the fastest place counts as picked and is called the fastest, not "picked". */
 @Composable
-private fun RestCard(st: RestStop, index: Int, onRoute: Boolean, isDest: Boolean, picked: Boolean, modifier: Modifier) {
+private fun RestCard(st: RestStop, index: Int, onRoute: Boolean, isDest: Boolean, picked: Boolean, auto: Boolean, modifier: Modifier) {
     val added = onRoute || isDest
     val shape = RoundedCornerShape(u(36))
     var m = modifier.fillMaxHeight()
@@ -210,15 +211,22 @@ private fun RestCard(st: RestStop, index: Int, onRoute: Boolean, isDest: Boolean
                 Flag(Ink)
                 Txt(if (isDest) "지금 갈 곳" else "지금 들를 곳", 32, Ink, FontWeight.SemiBold, maxLines = 1)
             }
-            picked -> Txt("고른 곳 · ${st.kind.word}", 30, Palette.Primary, FontWeight.SemiBold, maxLines = 1)
-            else -> Txt((if (index == 0) "가장 빨라요 · " else "") + st.kind.word, 28, Palette.Sub, maxLines = 1)
+            picked -> Txt((if (auto && index == 0) "가장 빠른 " else "고른 ") + st.kind.word, 30, Palette.Primary, FontWeight.SemiBold, maxLines = 1)
+            else -> Txt((if (index == 0) "가장 빠른 " else "") + st.kind.word, 28, Palette.Sub, maxLines = 1)
         }
         Spacer(Modifier.height(u(22)))
         Txt(st.name, if (st.name.length > 4) 72 else 84, name, FontWeight.Medium, maxLines = 1, spacing = -0.03f, ellipsis = true)
         Spacer(Modifier.height(u(18)))
         Txt("약 ${st.etaMin}분", 48, name, FontWeight.Medium, maxLines = 1)
         Txt(
-            "${"%.0f".format(st.distanceKm)}km" + (if (st.direction.isNotBlank()) " · ${st.direction}" else ""),
+            // "일산 방향 11km", "하행 12km"; the rest-area file's "양방향" means both sides use it
+            "${"%.0f".format(st.distanceKm)}km".let { km ->
+                when {
+                    st.direction.isBlank() -> km
+                    st.direction == "양방향" -> "$km, 양방향 이용"
+                    else -> "${st.direction} $km"
+                }
+            },
             30, sub, maxLines = 1, ellipsis = true, modifier = Modifier.padding(top = u(6))
         )
         Spacer(Modifier.weight(1f))

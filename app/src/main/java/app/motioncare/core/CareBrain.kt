@@ -1,4 +1,4 @@
-// ver 1.15.0 | 2026-11-12 12:15
+// ver 1.16.0 | 2026-11-12 12:25
 package app.motioncare.core
 
 import app.motioncare.data.DemoNavi
@@ -419,7 +419,7 @@ class CareBrain(
         return begin(
             RestJob(RestAction.ADD, stop, null, index, removing = false),
             NaviCmd.Add(stop, index),
-            RestWork("${stop.name} 넣는 중", line(route + stop.name) + " · 내비가 확인하면 바뀌어요"),
+            RestWork("${stop.name} 넣는 중", line(route + stop.name)),
             "${stop.label}를 내비에 넣고 있어요"
         )
     }
@@ -432,7 +432,7 @@ class CareBrain(
         return begin(
             RestJob(RestAction.REMOVE, stop, null, index, removing = true),
             NaviCmd.Remove(index, stop.name),
-            RestWork("${stop.name} 빼는 중", line(route.filterNot { RestPlan.same(it, stop.name) }) + " · 내비가 확인하면 바뀌어요"),
+            RestWork("${stop.name} 빼는 중", line(route.filterNot { RestPlan.same(it, stop.name) })),
             "${stop.label}를 내비에서 빼고 있어요"
         )
     }
@@ -447,7 +447,7 @@ class CareBrain(
         return begin(
             RestJob(RestAction.REPLACE, new, old, index, removing = true),
             NaviCmd.Remove(index, old.name),
-            RestWork("${withRo(new.name)} 바꾸는 중", line(route.map { if (RestPlan.same(it, old.name)) new.name else it }) + " · 내비가 확인하면 바뀌어요"),
+            RestWork("${withRo(new.name)} 바꾸는 중", line(route.map { if (RestPlan.same(it, old.name)) new.name else it })),
             "${old.name} 대신 ${new.label}를 내비에 넣고 있어요"
         )
     }
@@ -459,7 +459,7 @@ class CareBrain(
         return begin(
             RestJob(RestAction.ADD, stop, null, 0, removing = false, mode = JobMode.ROUTE),
             NaviCmd.Route(stop),
-            RestWork("${stop.name} 안내 준비 중", "출발 → ${stop.label} · 내비가 확인하면 바뀌어요"),
+            RestWork("${stop.name} 안내 준비 중", "출발 → ${stop.label}"),
             "${stop.label}로 안내를 시작할게요"
         )
     }
@@ -471,7 +471,7 @@ class CareBrain(
         return begin(
             RestJob(RestAction.REMOVE, d, null, 0, removing = true, mode = JobMode.CANCEL),
             NaviCmd.Cancel,
-            RestWork("안내 끝내는 중", "${d.label} 안내를 끝내요 · 내비가 확인하면 바뀌어요"),
+            RestWork("안내 끝내는 중", "${d.label} 안내를 끝내요"),
             "${d.label} 안내를 끝낼게요"
         )
     }
@@ -526,7 +526,7 @@ class CareBrain(
                 val index = minOf(j.index, names.size)
                 if (!onNavi(NaviCmd.Add(j.stop, index))) {
                     job = null
-                    fail(RestWork("${j.old?.name}만 빠졌어요", "${j.stop.label}는 내비에 보내지 못했어요 · 다시 해 주세요", failed = true))
+                    fail(RestWork("${j.old?.name}만 빠졌어요", "${j.stop.label}는 내비에 보내지 못했어요. 다시 해 주세요", failed = true))
                     return
                 }
                 j.index = index
@@ -557,14 +557,14 @@ class CareBrain(
         fail(
             when {
                 j.mode == JobMode.ROUTE ->
-                    RestWork("내비가 받지 않았어요", "${j.stop.label} 안내가 시작되지 않았어요 · 다시 해 주세요", failed = true)
+                    RestWork("내비가 받지 않았어요", "${j.stop.label} 안내가 시작되지 않았어요. 다시 해 주세요", failed = true)
                 j.mode == JobMode.CANCEL ->
-                    RestWork("내비가 받지 않았어요", "${j.stop.label} 안내가 그대로예요 · 다시 해 주세요", failed = true)
+                    RestWork("내비가 받지 않았어요", "${j.stop.label} 안내가 그대로예요. 다시 해 주세요", failed = true)
                 j.kind == RestAction.REPLACE && !j.removing ->
-                    RestWork("${j.old?.name}만 빠졌어요", "${j.stop.label}는 내비가 받지 않았어요 · 다시 해 주세요", failed = true)
+                    RestWork("${j.old?.name}만 빠졌어요", "${j.stop.label}는 내비가 받지 않았어요. 다시 해 주세요", failed = true)
                 j.kind == RestAction.REMOVE || j.kind == RestAction.REPLACE ->
-                    RestWork("내비가 받지 않았어요", "${(j.old ?: j.stop).label}가 그대로 있어요 · 다시 해 주세요", failed = true)
-                else -> RestWork("내비가 받지 않았어요", "${j.stop.label}가 들어가지 않았어요 · 다시 해 주세요", failed = true)
+                    RestWork("내비가 받지 않았어요", "${(j.old ?: j.stop).label}가 그대로 있어요. 다시 해 주세요", failed = true)
+                else -> RestWork("내비가 받지 않았어요", "${j.stop.label}가 들어가지 않았어요. 다시 해 주세요", failed = true)
             }
         )
     }
@@ -572,7 +572,7 @@ class CareBrain(
     private fun fail(note: RestWork) {
         workNote = note
         workNoteUntilMs = clock() + Policy.REST_FAIL_SHOW_MS
-        say("${note.title}. ${note.line.substringBefore(" · ")}", Policy.REST_FAIL_SHOW_MS)
+        say("${note.title}. ${note.line.substringBefore(". ")}", Policy.REST_FAIL_SHOW_MS)
     }
 
     /** The navigation is guiding to a destination (it reports its waypoints only then). */
