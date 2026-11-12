@@ -1,4 +1,4 @@
-// ver 1.3.0 | 2026-11-11 22:50
+// ver 1.5.0 | 2026-11-12 11:25
 package app.motioncare.data
 
 import app.motioncare.core.HistoryEvent
@@ -36,7 +36,14 @@ object DemoNavi {
     val catalogSize: Int get() = catalog.size
 
     /** The rest area behind a [RestStop.id] ("route|name|direction"), or null for the made-up stops. */
-    fun areaOf(id: String): RestArea? = catalog.firstOrNull { "${it.route}|${it.name}|${it.direction}" == id }
+    fun areaOf(id: String): RestArea? = catalog.firstOrNull { it.id == id }
+
+    /** Rest areas and shelters in the bundled files, counted apart for the screens. */
+    val restAreaCount: Int get() = catalog.count { it.kind == app.motioncare.core.PlaceKind.REST_AREA }
+    val shelterCount: Int get() = catalog.count { it.kind == app.motioncare.core.PlaceKind.SHELTER }
+
+    /** Every rest area in the bundled file (empty while it is not loaded). */
+    fun catalogAreas(): List<RestArea> = catalog
 
     /** The stops in front of the demo position, nearest first (at most 10). */
     val stops: List<RestStop>

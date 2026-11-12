@@ -1,4 +1,4 @@
-// ver 1.8.0 | 2026-11-11 22:45
+// ver 1.10.0 | 2026-11-12 11:55
 package app.motioncare.ui
 
 import androidx.compose.foundation.background
@@ -42,6 +42,7 @@ import app.motioncare.core.Seat
 import app.motioncare.core.SeatKeys
 import app.motioncare.data.DemoNavi
 import app.motioncare.data.DiagLog
+import app.motioncare.data.Live
 import app.motioncare.data.LiveState
 import app.motioncare.service.CareService
 import java.text.SimpleDateFormat
@@ -181,8 +182,8 @@ fun CheckScreen(live: LiveState) {
             if (live.signalsConnected) "연결됨 · ${gearLabel(live.gear)}" else "연결 안 됨 (CAR_SPEED 권한 확인)"),
         CheckRow(
             "내비·휴게소 정보", if (DemoNavi.usingFallback) Level.WARN else Level.NONE,
-            if (DemoNavi.usingFallback) "휴게소 파일을 읽지 못함 · 가상 목록 사용"
-            else "경유지는 내비 연동(NaviHelper)으로 넣음 · 휴게소 목록은 도로공사 파일 ${DemoNavi.catalogSize}곳(기준일 ${DemoNavi.dataAsOf}) · 현재 위치는 시연용 가상"
+            if (DemoNavi.usingFallback) "쉼터 파일을 읽지 못함"
+            else "위치·도로 시간·경유지는 내비 연동(NaviHelper) · 휴게소 ${DemoNavi.restAreaCount}곳 · 졸음쉼터 ${DemoNavi.shelterCount}곳(한국도로공사)"
         ),
         CheckRow("창문", Level.NONE, "앱이 열지 않음 · 안내 음성으로 권하기만 함"),
         CheckRow("음성 호출 (Gleo)", Level.NONE, "멀미 나요 · 괜찮아졌어요 · 화면 열기 3가지 · 자리는 한 자리 또는 묶음(뒷자리 모두 등)"),
@@ -272,7 +273,7 @@ private fun isDebuggable(): Boolean =
 @Composable
 private fun VoiceTestPanel() {
     val context = LocalContext.current
-    val stops = DemoNavi.stops.filter { it.toilet && it.distanceKm in Policy.REST_MIN_KM..Policy.REST_MAX_KM }.sortedBy { it.distanceKm }
+    val stops = Live.state.collectAsState().value.nearby
     val second = stops.getOrNull(1)?.name ?: "평택"
     val third = stops.getOrNull(2)?.name ?: "고삼호수"
     fun send(action: String, params: String) {
@@ -299,7 +300,8 @@ private fun VoiceTestPanel() {
             listOf(
                 "경로 부산" to { CareService.testRoute(true) },
                 "경로 취소" to { CareService.testRoute(false) },
-                "내비 조회" to { CareService.testNaviRefresh() }
+                "내비 조회" to { CareService.testNaviRefresh() },
+                "쉼터 다시" to { CareService.testTrip() }
             )
         )
         rows.forEach { row ->

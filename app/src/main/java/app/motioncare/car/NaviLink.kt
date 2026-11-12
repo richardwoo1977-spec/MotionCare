@@ -1,4 +1,4 @@
-// ver 2.2.0 | 2026-11-11 22:55
+// ver 2.4.0 | 2026-11-12 11:30
 package app.motioncare.car
 
 import ai.pleos.playground.navi.constants.NaviErrorCode
@@ -9,6 +9,8 @@ import ai.pleos.playground.navi.data.DestinationInfo
 import ai.pleos.playground.navi.data.RequestWaypointInfo
 import ai.pleos.playground.navi.data.RouteInfo
 import ai.pleos.playground.navi.data.RouteStateInfo
+import ai.pleos.playground.navi.data.TripInfo
+import ai.pleos.playground.navi.data.TripRequest
 import ai.pleos.playground.navi.data.WaypointChangedInfo
 import ai.pleos.playground.navi.data.WaypointInfo
 import ai.pleos.playground.navi.helper.NaviHelper
@@ -16,6 +18,7 @@ import ai.pleos.playground.navi.helper.listener.NaviHelperEventListener
 import android.content.Context
 import android.os.Handler
 import app.motioncare.core.NaviCmd
+import app.motioncare.core.PlaceKind
 import app.motioncare.core.RestArea
 
 /**
@@ -37,7 +40,9 @@ class NaviLink(
     private val log: (String) -> Unit,
     private val onWaypoints: (List<String>?) -> Unit,
     private val onDestination: (String?) -> Unit,
-    private val onLocation: (address: String?, lat: Double, lon: Double) -> Unit
+    private val onLocation: (address: String?, lat: Double, lon: Double) -> Unit,
+    /** road distance (m) and the navigation's eta value for the last [requestTrip]; null = the navigation answered an error */
+    private val onTrip: (distanceM: Int?, eta: Int?) -> Unit = { _, _ -> }
 ) {
     private var helper: NaviHelper? = null
     @Volatile var connected = false
@@ -46,7 +51,18 @@ class NaviLink(
 
     private val listener = object : NaviHelperEventListener {
         override fun onError(errorCode: NaviErrorCode) {
-            main.post { log("내비 오류: $errorCode") }
+            main.post {
+                log("내비 오류: $errorCode")
+                if (errorCode == NaviErrorCode.CAUSE_SEARCH_TRIP) onTrip(null, null)
+            }
+        }
+
+        override fun onTripInfo(tripInfo: TripInfo) {
+            val t = tripInfo
+            main.post {
+                log("내비 경로 예상: 거리 ${t.distance} · eta ${t.eta} · 경로점 ${t.summary?.routePoints?.size ?: 0}")
+                onTrip(t.distance, t.eta)
+            }
         }
 
         override fun onRouteStateInfo(routeStateInfo: RouteStateInfo) {
@@ -135,6 +151,14 @@ class NaviLink(
         main.post { log("내비 경로 요청: $name ($lat, $lon)") }
     }
 
+    /**
+     * Asks the navigation for the road distance and time to a place without starting guidance (answer: onTripInfo).
+     * The answer carries no request id, so callers send one at a time.
+     */
+    fun requestTrip(name: String, lat: Double, lon: Double) = safe("경로 예상") {
+        it.requestTrip(TripRequest(latitude = lat, longitude = lon, poiId = "", poiName = name, poiSubId = "0"))
+    }
+
     /** Test tool (debug build): ends route guidance. */
     fun cancelRoute() = safe("경로 취소") { it.cancelRoute() }
 
@@ -162,7 +186,7 @@ class NaviLink(
                         longitude = area.lon,
                         waypointIndex = index(cmd.index),
                         poiId = "",
-                        poiName = "${area.name}휴게소",
+                        poiName = labelOf(area),
                         poiSubId = "0",
                         address = "${area.route} ${area.direction}"
                     )
@@ -174,7 +198,29 @@ class NaviLink(
             it.removeWaypoint(index(cmd.index))
             log("내비 경유지 빼기 요청: ${cmd.name} · ${index(cmd.index)}")
         }
+        is NaviCmd.Route -> {
+            if (area == null) {
+                log("내비 안내: 좌표 없는 장소")
+                false
+            } else safe("안내 요청") {
+                it.requestRoute(
+                    RouteInfo(
+                        latitude = area.lat, longitude = area.lon, poiId = "", poiName = labelOf(area),
+                        poiSubId = "0", address = "${area.route} ${area.direction}"
+                    )
+                )
+                log("내비 안내 요청: ${labelOf(area)} (${area.lat}, ${area.lon})")
+            }
+        }
+        NaviCmd.Cancel -> safe("안내 끝내기") {
+            it.cancelRoute()
+            log("내비 안내 끝내기 요청")
+        }
     }
+
+    /** "안성휴게소", "죽전 졸음쉼터" */
+    fun labelOf(area: RestArea): String =
+        if (area.kind == PlaceKind.REST_AREA) "${area.name}휴게소" else "${area.name} 졸음쉼터"
 
     private fun index(i: Int): WaypointIndex = if (i <= 0) WaypointIndex.FIRST else WaypointIndex.SECOND
 

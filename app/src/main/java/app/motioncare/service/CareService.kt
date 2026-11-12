@@ -1,4 +1,4 @@
-// ver 1.5.0 | 2026-11-11 22:50
+// ver 1.7.0 | 2026-11-12 11:35
 package app.motioncare.service
 
 import android.app.Service
@@ -16,6 +16,11 @@ import app.motioncare.car.VehicleLink
 import app.motioncare.core.CareBrain
 import app.motioncare.core.CareMode
 import app.motioncare.core.NaviCmd
+import app.motioncare.core.Geo
+import app.motioncare.core.NearbyPlan
+import app.motioncare.core.NearbyState
+import app.motioncare.core.RestArea
+import app.motioncare.core.Trip
 import app.motioncare.data.DiagLog
 import app.motioncare.data.Live
 import app.motioncare.data.RestAssets
@@ -70,6 +75,15 @@ class CareService : Service() {
                 if (start) s.navi?.requestRoute("부산역", 35.1151, 129.0415, "부산광역시 동구 중앙대로 206")
                 else s.navi?.cancelRoute()
             }
+        }
+
+        /**
+         * Test tool (debug build): asks the navigation for road distance and time to the rest areas nearest to where
+         * it says the car is, one at a time, and logs each answer with how long it took.
+         */
+        fun testTrip() {
+            val s = instance ?: return
+            s.main.post { s.refreshNearby(force = true) }
         }
 
         fun testNaviRefresh() {
@@ -128,9 +142,86 @@ class CareService : Service() {
      * navigation has taken the waypoint off before the new one goes to the same place.
      */
 
+    // ------------------------------------------------------------------ places nearby
+
+    /** where the navigation last said the car is */
+    private var lastLat: Double? = null
+    private var lastLon: Double? = null
+
+    /** where and when the last search started */
+    private var searchLat: Double? = null
+    private var searchLon: Double? = null
+    private var searchAtMs = 0L
+
+    /** the search in progress: places still to ask, answers so far, the one asked now */
+    private val askQueue = ArrayDeque<RestArea>()
+    private val answers = mutableListOf<Pair<RestArea, Trip?>>()
+    private var asking: RestArea? = null
+    private var askSentMs = 0L
+
+    /**
+     * Starts a search when there is none running and the car has moved [NearbyPlan.REFRESH_KM] or
+     * [NearbyPlan.REFRESH_MS] has passed ([force]: now). The navigation is asked one place at a time
+     * (its answer carries no request id).
+     */
+    private fun refreshNearby(force: Boolean = false) {
+        val b = brain ?: return
+        val lat = lastLat ?: return
+        val lon = lastLon ?: return
+        if (asking != null) return
+        val now = System.currentTimeMillis()
+        val moved = searchLat?.let { Geo.km(it, searchLon ?: lon, lat, lon) } ?: Double.MAX_VALUE
+        if (!force && moved < NearbyPlan.REFRESH_KM && now - searchAtMs < NearbyPlan.REFRESH_MS) return
+        searchLat = lat
+        searchLon = lon
+        searchAtMs = now
+        val list = NearbyPlan.candidates(DemoNavi.catalogAreas(), lat, lon)
+        DiagLog.w("근처 쉼터 찾기: 후보 ${list.size}곳 " + list.joinToString { "${it.name}(${NearbyPlan.directionText(it)})" })
+        if (list.isEmpty()) {
+            b.onNearby(NearbyState.NONE, emptyList())
+            return
+        }
+        b.onNearby(NearbyState.LOADING, emptyList())
+        askQueue.clear()
+        askQueue.addAll(list)
+        answers.clear()
+        askNext()
+    }
+
+    private fun askNext() {
+        val a = askQueue.removeFirstOrNull()
+        if (a == null) {
+            asking = null
+            val ranked = NearbyPlan.rank(answers)
+            DiagLog.w("근처 쉼터: " + ranked.joinToString { "${it.name} ${it.etaMin}분 ${"%.1f".format(it.distanceKm)}km" })
+            brain?.onNearby(if (ranked.isEmpty()) NearbyState.NONE else NearbyState.READY, ranked)
+            return
+        }
+        asking = a
+        askSentMs = System.currentTimeMillis()
+        val sent = askSentMs
+        if (navi?.requestTrip(navi?.labelOf(a) ?: a.name, a.lat, a.lon) != true) {
+            onTripAnswer(null, null)
+            return
+        }
+        // no answer in time: that place is left out
+        main.postDelayed({ if (askSentMs == sent && asking === a) onTripAnswer(null, null) }, ASK_TIMEOUT_MS)
+    }
+
+    private fun onTripAnswer(distanceM: Int?, seconds: Int?) {
+        val a = asking ?: return
+        askSentMs = 0L
+        answers.add(a to if (distanceM != null && seconds != null && distanceM > 0) Trip(distanceM, seconds) else null)
+        askNext()
+    }
+
     /** Sends one route change now (the brain sends the next only after the navigation reports this one). */
     private fun sendToNavi(cmd: NaviCmd): Boolean {
-        val area = (cmd as? NaviCmd.Add)?.let { DemoNavi.areaOf(it.stop.id) }
+        val area = when (cmd) {
+            is NaviCmd.Add -> DemoNavi.areaOf(cmd.stop.id)
+            is NaviCmd.Route -> DemoNavi.areaOf(cmd.stop.id)
+            else -> null
+        }
         return navi?.run(cmd, area) ?: false
     }
 
@@ -172,7 +263,13 @@ class CareService : Service() {
             log = DiagLog::w,
             onWaypoints = { names -> b.onNaviWaypoints(names) },
             onDestination = { name -> b.onNaviDestination(name) },
-            onLocation = { address, lat, lon -> b.onLocation(address, lat, lon) }
+            onLocation = { address, lat, lon ->
+                lastLat = lat
+                lastLon = lon
+                b.onLocation(address, lat, lon)
+                refreshNearby()
+            },
+            onTrip = { d, eta -> onTripAnswer(d, eta) }
         ).also { it.start() }
         link = l
         val ok = l.start()
@@ -229,3 +326,6 @@ class CareService : Service() {
         super.onDestroy()
     }
 }
+
+/** How long the navigation may take to answer one road-time question. */
+private const val ASK_TIMEOUT_MS = 10_000L

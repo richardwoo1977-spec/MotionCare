@@ -1,4 +1,4 @@
-// ver 1.6.0 | 2026-11-11 22:50
+// ver 1.7.0 | 2026-11-12 11:40
 package app.motioncare.service
 
 import android.content.BroadcastReceiver
@@ -64,18 +64,16 @@ class GleoReceiver : BroadcastReceiver() {
                     when (outcome) {
                         // the navigation takes several seconds and reports the change later: say it is being done, not done
                         RestOutcome.DONE -> reply(app, name, "success", when (action) {
-                            RestAction.ADD -> "Asked the navigation to add $stop rest area as a waypoint. The navigation screen shows it once the route is updated."
-                            RestAction.REPLACE -> "Asked the navigation to put $stop rest area in place of the earlier rest stop. The navigation screen shows it once the route is updated."
-                            RestAction.REMOVE -> "Asked the navigation to take $stop rest area off the route. The navigation screen shows it once the route is updated."
+                            RestAction.REMOVE -> "Asked the navigation to take $stop off the route. The navigation screen shows it once the route is updated."
+                            else -> "Asked the navigation to go by $stop. The navigation screen shows it once the route is updated."
                         })
                         RestOutcome.BUSY -> reply(app, name, "fail", "The navigation is still changing the route. Please ask again in a moment.")
-                        RestOutcome.NO_ROUTE -> reply(app, name, "fail", "The navigation has no destination yet. Please set a destination in the navigation first.")
                         RestOutcome.NOT_SENT -> reply(app, name, "fail", "The navigation could not be reached, so the route was not changed.")
-                        RestOutcome.ALREADY -> reply(app, name, "success", "$stop rest area is already on the route.")
+                        RestOutcome.ALREADY -> reply(app, name, "success", "$stop is already on the route.")
                         RestOutcome.FULL -> reply(app, name, "fail", "The navigation already has two waypoints, its limit.")
-                        RestOutcome.NOT_FOUND -> reply(app, name, "fail", "There is no rest area by that name ahead on the route.")
-                        RestOutcome.NOTHING_OURS -> reply(app, name, "fail", "This app has not put any rest area on the route.")
-                        RestOutcome.ASK_PLACE -> reply(app, name, "asking", "Which rest area?", MISSING_PLACE)
+                        RestOutcome.NOT_FOUND -> reply(app, name, "fail", "There is no rest stop by that name nearby.")
+                        RestOutcome.NOTHING_OURS -> reply(app, name, "fail", "This app has not put any rest stop on the route.")
+                        RestOutcome.ASK_PLACE -> reply(app, name, "asking", "Which rest stop?", MISSING_PLACE)
                     }
                 }
                 return

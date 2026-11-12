@@ -1,4 +1,4 @@
-// ver 1.3.0 | 2026-11-11 22:10
+// ver 1.4.0 | 2026-11-12 11:05
 package app.motioncare.core
 
 enum class Gear { PARK, REVERSE, NEUTRAL, DRIVE, UNKNOWN }
@@ -52,6 +52,13 @@ data class Desired(
     val isIdle: Boolean get() = !recircOff && fan == FanWant.NONE && !faceDirection && !powerOn && !windowOpen
 }
 
+/** A highway rest area or a drowsy-driver shelter (졸음쉼터). */
+enum class PlaceKind(val word: String) { REST_AREA("휴게소"), SHELTER("졸음쉼터") }
+
+/**
+ * A place to rest as the screens show it. [distanceKm] and [etaMin] are by road, from the navigation
+ * (requestTrip); [direction] is short words for the side of the road ("부산 방향", "하행").
+ */
 data class RestStop(
     val id: String,
     val name: String,
@@ -59,8 +66,19 @@ data class RestStop(
     val etaMin: Int,
     val toilet: Boolean,
     val nursing: Boolean,
-    val kids: Boolean
-)
+    val kids: Boolean,
+    val kind: PlaceKind = PlaceKind.REST_AREA,
+    val direction: String = ""
+) {
+    /** "안성휴게소", "죽전 졸음쉼터": the name the navigation is given and the guidance says. */
+    val label: String get() = if (kind == PlaceKind.REST_AREA) "${name}휴게소" else "$name 졸음쉼터"
+
+    /** More than [NearbyPlan.FAR_MIN] minutes away by road. */
+    val far: Boolean get() = etaMin > NearbyPlan.FAR_MIN
+}
+
+/** How far the search for nearby places has got. */
+enum class NearbyState { NO_POSITION, LOADING, READY, NONE }
 
 data class HistoryEvent(
     val epochMs: Long,

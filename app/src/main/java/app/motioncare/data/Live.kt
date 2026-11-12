@@ -1,4 +1,4 @@
-// ver 1.8.0 | 2026-11-11 22:50
+// ver 1.9.0 | 2026-11-12 11:25
 package app.motioncare.data
 
 import app.motioncare.core.CarLayout
@@ -6,6 +6,7 @@ import app.motioncare.core.CareMode
 import app.motioncare.core.CheckRow
 import app.motioncare.core.Gear
 import app.motioncare.core.HistoryEvent
+import app.motioncare.core.NearbyState
 import app.motioncare.core.RestStop
 import app.motioncare.core.RestWork
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +42,11 @@ data class LiveState(
     val suggestionWhy: String = "",
     /** a route change sent to the navigation and not confirmed yet, or one that just failed; null = none */
     val restWork: RestWork? = null,
+    /** places nearby, fastest by road first (at most three) */
+    val nearby: List<RestStop> = emptyList(),
+    val nearbyState: NearbyState = NearbyState.NO_POSITION,
+    /** the place this app set as the navigation's destination, while the navigation guides there */
+    val destRestId: String? = null,
     /** rest areas the app put on the route (only those the navigation has confirmed) */
     val waypoints: List<RestStop> = emptyList(),
     /** waypoint names on the navigation's route in order (it may hold the driver's own); null = not reported */

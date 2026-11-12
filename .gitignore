@@ -18,3 +18,4 @@
 # local work folders
 .kotlin/
 .run/
+data_incoming/

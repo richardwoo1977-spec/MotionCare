@@ -1,10 +1,14 @@
-// ver 1.2.0 | 2026-11-11 22:50
+// ver 1.3.0 | 2026-11-12 11:25
 package app.motioncare.core
 
 /** What the app asks the navigation for. [index] 0 = first waypoint, 1 = second. */
 sealed class NaviCmd {
     data class Add(val stop: RestStop, val index: Int) : NaviCmd()
     data class Remove(val index: Int, val name: String) : NaviCmd()
+    /** No route (or guiding to our stop): guide to [stop] as the destination. */
+    data class Route(val stop: RestStop) : NaviCmd()
+    /** End the guidance to the stop this app set as the destination. */
+    object Cancel : NaviCmd()
 }
 
 /**
@@ -22,8 +26,6 @@ enum class RestOutcome {
     DONE,
     /** An earlier change is still waiting for the navigation; nothing was sent. */
     BUSY,
-    /** The navigation is not guiding to a destination; nothing was sent (it answers a waypoint with an error then). */
-    NO_ROUTE,
     /** The navigation could not be reached; nothing was sent. */
     NOT_SENT,
     /** That rest area is already on the route. */

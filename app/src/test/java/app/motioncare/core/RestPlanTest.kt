@@ -1,4 +1,4 @@
-// ver 1.2.0 | 2026-11-11 22:50
+// ver 1.3.0 | 2026-11-12 12:00
 package app.motioncare.core
 
 import app.motioncare.data.DemoNavi
@@ -22,6 +22,7 @@ class RestPlanTest {
         val b = CareBrain(clock = { now }, speak = {}, onDesired = {}, onNavi = { cmds += it; sends })
         b.init()
         b.onNaviWaypoints(emptyList())  // guiding to a destination, no waypoints yet
+        b.onNearby(NearbyState.READY, s.take(3))
         return b
     }
 
@@ -36,7 +37,13 @@ class RestPlanTest {
 
     private fun work() = Live.state.value.restWork
 
-    private val s get() = DemoNavi.stops
+    /** places nearby as the service would hand them over: fastest by road first */
+    private val s = listOf(
+        RestStop("R|경부선|안성|하행", "안성", 18.0, 14, toilet = true, nursing = true, kids = false),
+        RestStop("S|경부선|죽전|서울기점 + 부산종점", "죽전", 21.0, 19, toilet = true, nursing = false, kids = false, kind = PlaceKind.SHELTER, direction = "부산 방향"),
+        RestStop("R|경부선|천안|하행", "천안", 40.0, 33, toilet = true, nursing = false, kids = true),
+        RestStop("R|영동선|용인|하행", "용인", 45.0, 38, toilet = true, nursing = false, kids = false)
+    )
 
     private fun ours() = Live.state.value.waypoints.map { it.id }
 
@@ -250,18 +257,81 @@ class RestPlanTest {
     }
 
     @Test
-    fun with_no_destination_in_the_navigation_nothing_is_sent() {
+    fun with_no_destination_the_navigation_is_asked_to_guide_to_the_place() {
         val b = brain()
         b.onNaviWaypoints(null)
         assertTrue(!Live.state.value.naviRouting)
-        assertEquals(RestOutcome.NO_ROUTE, b.restAdd(s[0].id))
-        assertEquals(RestOutcome.NO_ROUTE, b.restReplace(s[0].id))
-        assertEquals(RestOutcome.NO_ROUTE, b.voiceRest(RestAction.ADD, null).first)
-        assertTrue(cmds.isEmpty())
-        assertNull(work())
+        assertEquals(RestOutcome.DONE, b.restAdd(s[1].id))
+        assertEquals(listOf<NaviCmd>(NaviCmd.Route(s[1])), cmds)
+        assertEquals("${s[1].name} 안내 준비 중", work()?.title)
+        // the navigation reports the new destination: the place is now where it guides
+        b.onNaviDestination(s[1].label)
         b.navi()
-        assertTrue(Live.state.value.naviRouting)
+        assertNull(work())
+        assertEquals(s[1].id, Live.state.value.destRestId)
+    }
+
+    @Test
+    fun guiding_to_our_place_another_card_changes_the_destination_and_the_same_card_ends_it() {
+        val b = brain()
+        b.onNaviWaypoints(null)
+        b.restAdd(s[0].id)
+        b.onNaviDestination(s[0].label)
+        b.navi()
+        cmds.clear()
+        // routing now, but to our place: picking another one changes the destination, not a waypoint
+        assertEquals(RestOutcome.DONE, b.restAdd(s[2].id))
+        assertEquals(listOf<NaviCmd>(NaviCmd.Route(s[2])), cmds)
+        b.onNaviDestination(s[2].label)
+        assertEquals(s[2].id, Live.state.value.destRestId)
+        cmds.clear()
+        assertEquals(RestOutcome.DONE, b.restRemove(s[2].id))
+        assertEquals(listOf<NaviCmd>(NaviCmd.Cancel), cmds)
+        b.onNaviDestination(null)
+        b.onNaviWaypoints(null)
+        assertNull(work())
+        assertNull(Live.state.value.destRestId)
+    }
+
+    @Test
+    fun voice_with_no_destination_guides_to_the_fastest_place_and_remove_ends_it() {
+        val b = brain()
+        b.onNaviWaypoints(null)
+        assertEquals(RestOutcome.DONE to s[0].name, b.voiceRest(RestAction.ADD, null))
+        assertEquals(NaviCmd.Route(s[0]), cmds.last())
+        b.onNaviDestination(s[0].label)
+        assertEquals(RestOutcome.DONE to s[0].name, b.voiceRest(RestAction.REMOVE, null))
+        assertEquals(NaviCmd.Cancel, cmds.last())
+    }
+
+    @Test
+    fun a_guidance_the_navigation_does_not_take_says_so() {
+        val b = brain()
+        b.onNaviWaypoints(null)
+        b.restAdd(s[0].id)
+        now += Policy.REST_STEP_TIMEOUT_MS
+        b.tick()
+        assertEquals("내비가 받지 않았어요", work()?.title)
+        assertNull(Live.state.value.destRestId)
+    }
+
+    @Test
+    fun a_destination_set_by_the_driver_is_not_ours() {
+        val b = brain()
+        b.onNaviDestination("부산역")
+        b.navi()
+        assertNull(Live.state.value.destRestId)
         assertEquals(RestOutcome.DONE, b.restAdd(s[0].id))
+        assertEquals(NaviCmd.Add(s[0], 0), cmds.last())
+    }
+
+    @Test
+    fun nothing_nearby_means_no_place_to_add_by_voice() {
+        val b = brain()
+        b.onNearby(NearbyState.NONE, emptyList())
+        assertEquals(RestOutcome.NOT_FOUND, b.voiceRest(RestAction.ADD, null).first)
+        assertTrue(cmds.isEmpty())
+        assertEquals(NearbyState.NONE, Live.state.value.nearbyState)
     }
 
     @Test
@@ -289,7 +359,7 @@ class RestPlanTest {
         val b = brain()
         val (o, name) = b.voiceRest(RestAction.ADD, null)
         assertEquals(RestOutcome.DONE, o)
-        assertEquals(Policy.pickStop(s)?.name, name)
+        assertEquals(s[0].name, name)
     }
 
     @Test

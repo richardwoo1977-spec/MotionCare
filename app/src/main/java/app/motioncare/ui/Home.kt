@@ -1,4 +1,4 @@
-// ver 2.1.0 | 2026-11-11 19:10
+// ver 2.2.0 | 2026-11-12 11:55
 package app.motioncare.ui
 
 import androidx.compose.foundation.Canvas
@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import app.motioncare.core.CareMode
 import app.motioncare.core.Policy
+import app.motioncare.core.NearbyState
 import app.motioncare.core.RestDisplay
 import app.motioncare.core.RestStop
 import app.motioncare.data.DemoNavi
@@ -138,8 +139,8 @@ private fun WhenCard(live: LiveState, height: Float) {
  */
 @Composable
 private fun RestCard(live: LiveState, height: Float, onOpen: () -> Unit) {
-    val stop: RestStop? = live.suggestion ?: Policy.pickStop(DemoNavi.stops)
-    val added = stop != null && live.waypoints.any { it.id == stop.id }
+    val stop: RestStop? = live.suggestion?.takeIf { s -> live.nearby.any { it.id == s.id } } ?: live.nearby.firstOrNull()
+    val added = stop != null && ((live.naviRouting && live.waypoints.any { it.id == stop.id }) || live.destRestId == stop.id)
     if (stop == null) {
         Box(
             Modifier.fillMaxWidth().height(u(height)).background(QuietCard, RoundedCornerShape(u(28))).clickable(onClick = onOpen)
@@ -148,13 +149,26 @@ private fun RestCard(live: LiveState, height: Float, onOpen: () -> Unit) {
         ) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                 Txt("쉬어 갈 곳", 30, Palette.Sub, maxLines = 1)
-                Txt("정해지면 알려요", 56, Palette.Sub, FontWeight.Medium, maxLines = 1)
-                Txt("경로를 켜면 보여드려요", 28, NoteColor, maxLines = 1)
+                Txt(
+                    when (live.nearbyState) {
+                        NearbyState.NONE -> "근처에 없어요"
+                        else -> "찾는 중이에요"
+                    },
+                    56, Palette.Sub, FontWeight.Medium, maxLines = 1
+                )
+                Txt(
+                    when (live.nearbyState) {
+                        NearbyState.NONE -> "안전한 곳에 잠시 세워 쉬어 가세요"
+                        NearbyState.NO_POSITION -> "내비에서 위치를 받는 중"
+                        else -> "쉼터까지 걸리는 시간을 묻는 중"
+                    },
+                    28, NoteColor, maxLines = 1
+                )
             }
         }
         return
     }
-    val headline = "${stop.name} ${RestDisplay.kmText(stop.distanceKm)}"
+    val headline = "${stop.name} 약 ${stop.etaMin}분"
     if (added) {
         Box(
             Modifier.fillMaxWidth().height(u(height)).background(ActionCard, RoundedCornerShape(u(28))).clickable(onClick = onOpen)
@@ -162,9 +176,12 @@ private fun RestCard(live: LiveState, height: Float, onOpen: () -> Unit) {
                 .padding(u(32))
         ) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                Txt("경유지에 넣었어요", 30, Palette.Primary, FontWeight.Medium, maxLines = 1)
+                Txt(if (live.destRestId == stop.id) "안내 중이에요" else "경유지에 넣었어요", 30, Palette.Primary, FontWeight.Medium, maxLines = 1)
                 Txt(headline, headlineSize(headline, COL_W - 64f), Color.White, FontWeight.Medium, maxLines = 1, spacing = -0.02f)
-                Txt("내비가 안내해요 · 경유지 ${live.waypoints.size}/2", 28, Palette.Sub, maxLines = 1)
+                Txt(
+                    if (live.destRestId == stop.id) "내비가 ${stop.label}로 안내해요" else "내비가 안내해요 · 경유지 ${live.waypoints.size}/2",
+                    28, Palette.Sub, maxLines = 1
+                )
             }
         }
         return
@@ -173,19 +190,22 @@ private fun RestCard(live: LiveState, height: Float, onOpen: () -> Unit) {
         Box(
             Modifier.weight(1f).fillMaxHeight().background(ActionCard, RoundedCornerShape(u(28)))
                 .clickable { CareService.addWaypoint(stop.id) }
-                .semantics { contentDescription = "$headline 을 경유지로 넣기" }
+                .semantics { contentDescription = if (live.naviRouting && live.destRestId == null) "$headline 을 경유지로 넣기" else "$headline 로 안내하기" }
                 .padding(u(32))
         ) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                Txt("쉬어 갈 곳", 30, Palette.Sub, maxLines = 1)
+                Txt("쉬어 갈 곳 · ${stop.kind.word}" + if (stop.far) " · 멀어요" else "", 30, Palette.Sub, maxLines = 1)
                 Txt(headline, headlineSize(headline, COL_W - 104f - 12f - 64f), Color.White, FontWeight.Medium, maxLines = 1, spacing = -0.02f)
-                Txt("누르면 경유지로 넣어요", 28, Palette.Primary, FontWeight.Medium, maxLines = 1)
+                Txt(
+                    if (live.naviRouting && live.destRestId == null) "누르면 경유지로 넣어요" else "누르면 내비가 안내해요",
+                    28, Palette.Primary, FontWeight.Medium, maxLines = 1
+                )
             }
         }
         Column(
             Modifier.width(u(104)).fillMaxHeight().background(QuietCard, RoundedCornerShape(u(28)))
                 .clickable(onClick = onOpen)
-                .semantics { contentDescription = "다른 휴게소 보기" },
+                .semantics { contentDescription = "다른 쉼터 보기" },
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(u(8), Alignment.CenterVertically)
         ) {

@@ -1,4 +1,4 @@
-// ver 1.0.0 | 2026-11-05 19:30
+// ver 1.1.0 | 2026-11-12 11:05
 package app.motioncare.core
 
 import kotlin.math.abs
@@ -18,8 +18,12 @@ data class RestArea(
     val toilet: Boolean,
     val nursing: Boolean,
     val kids: Boolean,
-    val asOf: String
-)
+    val asOf: String,
+    val kind: PlaceKind = PlaceKind.REST_AREA
+) {
+    /** Stable key: kind, route, name and direction (a name can stand on both sides of a road). */
+    val id: String get() = (if (kind == PlaceKind.SHELTER) "S|" else "") + "$route|$name|$direction"
+}
 
 object RestCatalog {
     /** "안성휴게소(서울)" -> "안성". The direction in parentheses and the word 휴게소 are not shown. */
@@ -50,6 +54,35 @@ object RestCatalog {
                 nursing = cell(row, "수유실유무") == "Y",
                 kids = "키즈" in cell(row, "기타편의시설"),
                 asOf = cell(row, "데이터기준일자")
+            )
+        }
+    }
+
+    /**
+     * The drowsy-driver shelter file (전국졸음쉼터표준데이터, already UTF-8). Rows without a name or a usable
+     * position are skipped.
+     */
+    fun parseShelters(csv: String): List<RestArea> {
+        val table = readCsv(csv.removePrefix("\uFEFF"))
+        if (table.size < 2) return emptyList()
+        val head = table[0].mapIndexed { i, h -> h.trim() to i }.toMap()
+        fun cell(row: List<String>, col: String): String = head[col]?.let { row.getOrNull(it) }?.trim() ?: ""
+        return table.drop(1).mapNotNull { row ->
+            val name = cell(row, "졸음쉼터명").replace("졸음쉼터", "").trim()
+            val lat = cell(row, "위도").toDoubleOrNull()
+            val lon = cell(row, "경도").toDoubleOrNull()
+            if (name.isEmpty() || lat == null || lon == null) null
+            else RestArea(
+                name = name,
+                route = cell(row, "도로노선명"),
+                direction = cell(row, "도로노선방향"),
+                lat = lat,
+                lon = lon,
+                toilet = cell(row, "화장실유무") == "Y",
+                nursing = false,
+                kids = false,
+                asOf = cell(row, "데이터기준일자"),
+                kind = PlaceKind.SHELTER
             )
         }
     }
